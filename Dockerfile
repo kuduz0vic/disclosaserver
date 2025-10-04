@@ -14,4 +14,4 @@ ENV MAX_WORKERS=4 \
     RESOLVE_CC_IF_MISSING=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-CMD ["python", "scrape_worker.py"]
+CMD ["python", "-u", "scrape_worker.py"]
