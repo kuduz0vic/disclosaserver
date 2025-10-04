@@ -581,8 +581,28 @@ def process_job(initial_job_row: dict):
     for c in competitors:
         hotels.append({"name": c["name"], "slug": c["slug"], "cc": c.get("cc"), "own": False})
 
+    # 🔎 Optional filter: restrict to slugs requested by the user (meta.slugs)
+    try:
+        job_slugs = set(((job.get("meta") or {}).get("slugs") or []))
+    except Exception:
+        job_slugs = set()
+    if job_slugs:
+        before = len(hotels)
+        hotels = [h for h in hotels if (h.get("slug") or "").lower() in job_slugs]
+        print(f"🔎 Slug filter active ({len(job_slugs)} slugs). {before}→{len(hotels)} hotels remain.")
+        if not hotels:
+            # Nothing to do — finish gracefully
+            set_job_fields(
+                job_id,
+                status="done",
+                finished_at=now_iso_z(),
+                meta={**(job.get("meta") or {}), "note": "No matching hotels for provided slugs"}
+            )
+            print(f"ℹ️ Job {job_id} finished — no matching hotels for provided slugs.")
+            return
+
     print(f"🚀 Processing job {job_id} for user {user_id} range_days={range_days}")
-    print(f"🏨 Own: {bool(own)} | Competitors: {len(competitors)}")
+    print(f"🏨 Own: {bool(own)} | Competitors: {len(competitors)} | After filter: {len(hotels)} hotels")
 
     total_steps = len(hotels) * range_days
     set_job_fields(job_id, total_steps=(total_steps or None), completed_steps=0)
