@@ -15,12 +15,13 @@
 #   WAIT_TABLE_TIMEOUT_MS=8000
 #   SCROLL_PASSES=12
 #   PLAYWRIGHT_BROWSERS_PATH=0     # good default in containers
-#   NO_SANDBOX=1                   # add --no-sandbox chromium arg
 #
 # Tables:
 #   - scrape_jobs
 #   - user_hotels (join hotels(name,url,hotel_profiles(booking_slug,booking_cc)))
 #   - room_prices_raw (unique on: user_id, slug, checkin, room)
+#
+# Note: conservative concurrency + image/media/font blocking to reduce load.
 # ------------------------------------------------------------------------------
 
 import os
@@ -134,7 +135,7 @@ def claim_job(job_id: str) -> Optional[dict]:
         r = http_patch(
             f"/rest/v1/{JOBS_TABLE}",
             {"id": f"eq.{job_id}", "status": "eq.pending"},
-            {"status": "running", "started_at": now_iso_z(), "last_heartbeat_at": now_iso_z()},
+            {"status": "running", "started_at": now_iso_z()},
             prefer_return=True,
         )
         rows = r.json() if r.text else []
@@ -146,7 +147,7 @@ def claim_job(job_id: str) -> Optional[dict]:
 def set_job_fields(job_id: str, **patch):
     safe_patch: Dict[str, Any] = {}
     for k, v in patch.items():
-        if k in ("finished_at", "started_at", "last_heartbeat_at") and isinstance(v, dt.datetime):
+        if k in ("finished_at", "started_at") and isinstance(v, dt.datetime):
             safe_patch[k] = v.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
         else:
             safe_patch[k] = v
@@ -195,6 +196,9 @@ def _normalize_slug(v: str) -> str:
     return t.replace(" ", "")
 
 def _get_user_links(user_id: str) -> List[dict]:
+    """
+    Pull user_hotels + joined hotels + joined hotel_profiles(booking_slug,booking_cc) via hotels table.
+    """
     url = f"{SUPABASE_URL}/rest/v1/user_hotels"
     params = {
         "select": "hotel_id,link_type,inserted_at,hotels(name,url,hotel_profiles(booking_slug,booking_cc))",
@@ -237,12 +241,12 @@ def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:
 
     for l in links:
         if l.get("link_type") == "own":
-            slug = _normalize_slug(l.get("booking_slug") or l.get("url") or "").lower()
+            slug = _normalize_slug(l.get("booking_slug") or l.get("url") or "")
             if slug:
                 cc = (l.get("booking_cc") or "").lower() or None
                 return {"hotel_id": l["hotel_id"], "name": l["name"] or "My Hotel", "slug": slug, "cc": cc}
     first = links[0]
-    slug = _normalize_slug(first.get("booking_slug") or first.get("url") or "").lower()
+    slug = _normalize_slug(first.get("booking_slug") or first.get("url") or "")
     if not slug:
         return None
     cc = (first.get("booking_cc") or "").lower() or None
@@ -254,7 +258,7 @@ def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dic
     for l in links:
         if own_hotel_id and l["hotel_id"] == own_hotel_id:
             continue
-        slug = _normalize_slug(l.get("booking_slug") or l.get("url") or "").lower()
+        slug = _normalize_slug(l.get("booking_slug") or l.get("url") or "")
         if not slug:
             continue
         cc = (l.get("booking_cc") or "").lower() or None
@@ -414,6 +418,14 @@ def scrape_hotel_for_dates(
     checkout: str,
     should_cancel: Optional[Callable[[], bool]] = None,
 ) -> List[dict]:
+    """
+    For adults=1..4:
+      - Load /hotel/{cc}/{slug}.html with given checkin/checkout
+      - Expand/scroll
+      - Collect room rows
+      - Keep ONLY rows where inferred occupancy == adults
+    Return: [{hotel, slug, checkin, room, occupancy, price}]
+    """
     def cancelled() -> bool:
         return bool(should_cancel and should_cancel())
 
@@ -462,9 +474,8 @@ def scrape_hotel_for_dates(
                 rows = collect_room_rows(page)
                 for r in rows:
                     if cancelled(): break
+                    # keep all room rows (store occupancy we infer)
                     occ_inferred = get_occupancy_from_name(r["room"])
-                    if occ_inferred != adults:
-                        continue
                     out.append({
                         "hotel": name,
                         "slug": slug.lower(),
@@ -488,7 +499,9 @@ def upsert_rows(table: str, rows: List[dict], on_conflict: str):
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     params = {"on_conflict": on_conflict}
     headers = supabase_headers(upsert=True)
-    for batch in chunked(rows, 400):
+    # Chunk to avoid large payloads
+    for i in range(0, len(rows), 400):
+        batch = rows[i:i+400]
         r = requests.post(url, params=params, json=batch, headers=headers, timeout=60)
         if r.status_code not in (200, 201):
             print(f"❌ Upsert into {table} failed:", r.status_code, r.text[:400])
@@ -530,7 +543,7 @@ def _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
         return []
     try:
         raw = scrape_hotel_for_dates(
-            hotel["name"], hotel["slug"], hotel["cc"], checkin, checkout,
+            hotel["name"], hotel["slug"], hotel.get("cc") or DEFAULT_CC, checkin, checkout,
             should_cancel=lambda: is_canceled(job_id)
         )
         if is_canceled(job_id):
@@ -567,40 +580,43 @@ def process_job(initial_job_row: dict):
     for c in competitors:
         hotels.append({"name": c["name"], "slug": c["slug"], "cc": c.get("cc"), "own": False})
 
-    # 🔎 Normalize requested slugs BEFORE filtering (fixes own not being scraped)
-    meta = (job.get("meta") or {})
-    raw_slugs = (meta.get("slugs") or [])
-    job_slugs = set(
-        _normalize_slug(s).lower()
-        for s in raw_slugs
-        if isinstance(s, str) and s.strip()
-    )
-
-    # Debug logs
-    if hotels:
-        print("• Available hotel slugs:", [h["slug"] for h in hotels])
-    if job_slugs:
-        print("• Requested (meta.slugs):", list(job_slugs))
+    # 🔎 Optional filter: restrict to slugs requested by the user (meta.slugs)
+    try:
+        job_slugs = set(((job.get("meta") or {}).get("slugs") or []))
+    except Exception:
+        job_slugs = set()
 
     if job_slugs:
         before = len(hotels)
-        hotels = [h for h in hotels if (h.get("slug") or "").lower() in job_slugs]
-        print(f"🔎 Slug filter active ({len(job_slugs)} slugs). {before}→{len(hotels)} hotels remain.")
-        if not hotels:
-            set_job_fields(
-                job_id,
-                status="done",
-                finished_at=now_iso_z(),
-                meta={**meta, "note": "No matching hotels for provided slugs (after normalization)"},
-            )
-            print(f"ℹ️ Job {job_id} finished — no matching hotels after normalization.")
-            return
 
-    print(f"🚀 Processing job {job_id} for user {user_id} range_days={range_days}")
-    print(f"🏨 Own present: {bool(own)} | Competitors: {len(competitors)} | Scraping: {len(hotels)} hotels")
+        # Keep requested slugs OR force-include own
+        hotels = [
+            h for h in hotels
+            if (h.get("slug") or "").lower() in job_slugs or h.get("own") is True
+        ]
+
+        # De-dupe by slug
+        seen = set()
+        deduped = []
+        for h in hotels:
+            s = (h.get("slug") or "").lower()
+            if s and s not in seen:
+                seen.add(s)
+                deduped.append(h)
+        hotels = deduped
+
+        print(
+            f"🔎 Slug filter active ({len(job_slugs)} slugs). "
+            f"{before}→{len(hotels)} hotels after filter (own forced in)."
+        )
+
+    print(
+        f"🏨 Own present: {bool(own)} | Competitors: {len(competitors)} | "
+        f"Scraping: {len(hotels)} hotels (own_included={any(h.get('own') for h in hotels)})"
+    )
 
     total_steps = len(hotels) * range_days
-    set_job_fields(job_id, total_steps=(total_steps or None), completed_steps=0, last_heartbeat_at=now_iso_z())
+    set_job_fields(job_id, total_steps=(total_steps or None), completed_steps=0)
 
     completed = 0
 
@@ -656,9 +672,9 @@ def process_job(initial_job_row: dict):
                 finally:
                     with STEP_LOCK:
                         completed += 1
-                        local_completed = completed
-                    set_job_fields(job_id, completed_steps=local_completed, last_heartbeat_at=now_iso_z())
+                        set_job_fields(job_id, completed_steps=completed)
 
+        # flush remaining
         if results_buffer:
             upsert_room_level(user_id, results_buffer)
             results_buffer.clear()
@@ -699,12 +715,13 @@ def run_for_user(user_id: str, start_date: str, days: int):
         print("No selected hotels for user.")
         return
 
+    # resolve CCs
     for h in hotels:
         if not h.get("cc") and RESOLVE_CC_IF_MISSING:
             h["cc"] = resolve_cc_for_slug(h["slug"]) or DEFAULT_CC
 
     start = dt.datetime.strptime(start_date, "%Y-%m-%d").date()
-    print(f"🏨 Own present: {bool(own)} | Competitors: {len(comps)}")
+    print(f"🏨 Own present: {bool(own)} | Competitors: {len(comps)} | Total: {len(hotels)} (own_included={any(h.get('own') for h in hotels)})")
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = []
@@ -753,3 +770,4 @@ if __name__ == "__main__":
         run_for_user(run_uid, start, days)
     else:
         main()
+

@@ -243,7 +243,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n            {\"status\": \"running\", \"started_at\": now_iso_z(), \"last_heartbeat_at\": now_iso_z()},\n            prefer_return=True,\n        )\n        rows = r.json() if r.text else []\n        return rows[0] if rows else None",
+        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n            {\"status\": \"running\", \"started_at\": now_iso_z()},\n            prefer_return=True,\n        )\n        rows = r.json() if r.text else []\n        return rows[0] if rows else None",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -252,7 +252,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    safe_patch: Dict[str, Any] = {}\n    for k, v in patch.items():\n        if k in (\"finished_at\", \"started_at\", \"last_heartbeat_at\") and isinstance(v, dt.datetime):\n            safe_patch[k] = v.replace(tzinfo=timezone.utc).isoformat().replace(\"+00:00\", \"Z\")\n        else:\n            safe_patch[k] = v\n    try:\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",",
+        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    safe_patch: Dict[str, Any] = {}\n    for k, v in patch.items():\n        if k in (\"finished_at\", \"started_at\") and isinstance(v, dt.datetime):\n            safe_patch[k] = v.replace(tzinfo=timezone.utc).isoformat().replace(\"+00:00\", \"Z\")\n        else:\n            safe_patch[k] = v\n    try:\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -270,7 +270,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:\n    links = _get_user_links(user_id)\n    if not links:\n        return None\n    for l in links:\n        if l.get(\"link_type\") == \"own\":\n            slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\").lower()\n            if slug:\n                cc = (l.get(\"booking_cc\") or \"\").lower() or None\n                return {\"hotel_id\": l[\"hotel_id\"], \"name\": l[\"name\"] or \"My Hotel\", \"slug\": slug, \"cc\": cc}",
+        "peekOfCode": "def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:\n    links = _get_user_links(user_id)\n    if not links:\n        return None\n    for l in links:\n        if l.get(\"link_type\") == \"own\":\n            slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n            if slug:\n                cc = (l.get(\"booking_cc\") or \"\").lower() or None\n                return {\"hotel_id\": l[\"hotel_id\"], \"name\": l[\"name\"] or \"My Hotel\", \"slug\": slug, \"cc\": cc}",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -279,7 +279,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:\n    links = _get_user_links(user_id)\n    out: List[Dict[str, Any]] = []\n    for l in links:\n        if own_hotel_id and l[\"hotel_id\"] == own_hotel_id:\n            continue\n        slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\").lower()\n        if not slug:\n            continue\n        cc = (l.get(\"booking_cc\") or \"\").lower() or None",
+        "peekOfCode": "def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:\n    links = _get_user_links(user_id)\n    out: List[Dict[str, Any]] = []\n    for l in links:\n        if own_hotel_id and l[\"hotel_id\"] == own_hotel_id:\n            continue\n        slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n        if not slug:\n            continue\n        cc = (l.get(\"booking_cc\") or \"\").lower() or None",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -351,7 +351,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def scrape_hotel_for_dates(\n    name: str,\n    slug: str,\n    cc: str,\n    checkin: str,\n    checkout: str,\n    should_cancel: Optional[Callable[[], bool]] = None,\n) -> List[dict]:\n    def cancelled() -> bool:\n        return bool(should_cancel and should_cancel())",
+        "peekOfCode": "def scrape_hotel_for_dates(\n    name: str,\n    slug: str,\n    cc: str,\n    checkin: str,\n    checkout: str,\n    should_cancel: Optional[Callable[[], bool]] = None,\n) -> List[dict]:\n    \"\"\"\n    For adults=1..4:",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -360,7 +360,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def upsert_rows(table: str, rows: List[dict], on_conflict: str):\n    if not rows:\n        return\n    url = f\"{SUPABASE_URL}/rest/v1/{table}\"\n    params = {\"on_conflict\": on_conflict}\n    headers = supabase_headers(upsert=True)\n    for batch in chunked(rows, 400):\n        r = requests.post(url, params=params, json=batch, headers=headers, timeout=60)\n        if r.status_code not in (200, 201):\n            print(f\"❌ Upsert into {table} failed:\", r.status_code, r.text[:400])",
+        "peekOfCode": "def upsert_rows(table: str, rows: List[dict], on_conflict: str):\n    if not rows:\n        return\n    url = f\"{SUPABASE_URL}/rest/v1/{table}\"\n    params = {\"on_conflict\": on_conflict}\n    headers = supabase_headers(upsert=True)\n    # Chunk to avoid large payloads\n    for i in range(0, len(rows), 400):\n        batch = rows[i:i+400]\n        r = requests.post(url, params=params, json=batch, headers=headers, timeout=60)",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -558,7 +558,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> List[dict]:\n    if is_canceled(job_id):\n        return []\n    try:\n        raw = scrape_hotel_for_dates(\n            hotel[\"name\"], hotel[\"slug\"], hotel[\"cc\"], checkin, checkout,\n            should_cancel=lambda: is_canceled(job_id)\n        )\n        if is_canceled(job_id):",
+        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> List[dict]:\n    if is_canceled(job_id):\n        return []\n    try:\n        raw = scrape_hotel_for_dates(\n            hotel[\"name\"], hotel[\"slug\"], hotel.get(\"cc\") or DEFAULT_CC, checkin, checkout,\n            should_cancel=lambda: is_canceled(job_id)\n        )\n        if is_canceled(job_id):",
         "detail": "scrape_worker",
         "documentation": {}
     }
