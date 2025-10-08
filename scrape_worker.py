@@ -1,27 +1,25 @@
 # scrape_worker.py
 # ------------------------------------------------------------------------------
-# Disclosa/Yield - Country-aware, Parallel Booking.com scraper + worker
+# Country-aware, Parallel Booking.com scraper + worker
 #
 # ENV (required):
 #   SUPABASE_URL
-#   SUPABASE_SERVICE_ROLE_KEY      # service role preferred (writes jobs/rows)
+#   SUPABASE_SERVICE_ROLE_KEY
 #
 # ENV (optional):
-#   MAX_WORKERS=4                  # threadpool size (each task starts its own browser)
-#   DEFAULT_CC=si                  # fallback country if we can't resolve
-#   RESOLVE_CC_IF_MISSING=1        # try to auto-resolve cc if missing (0 to disable)
+#   MAX_WORKERS=4
+#   DEFAULT_CC=si
+#   RESOLVE_CC_IF_MISSING=1
 #   COMMON_CCS="si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr"
 #   PAGE_GOTO_TIMEOUT_MS=20000
 #   WAIT_TABLE_TIMEOUT_MS=8000
 #   SCROLL_PASSES=12
-#   PLAYWRIGHT_BROWSERS_PATH=0     # good default in containers
+#   PLAYWRIGHT_BROWSERS_PATH=0
 #
 # Tables:
 #   - scrape_jobs
 #   - user_hotels (join hotels(name,url,hotel_profiles(booking_slug,booking_cc)))
-#   - room_prices_raw (unique on: user_id, slug, checkin, room)
-#
-# Note: conservative concurrency + image/media/font blocking to reduce load.
+#   - room_prices_raw (UNIQUE: user_id, slug, checkin, room, occupancy)  << IMPORTANT
 # ------------------------------------------------------------------------------
 
 import os
@@ -62,7 +60,9 @@ SCROLL_PASSES = int(os.getenv("SCROLL_PASSES", "12"))
 
 JOBS_TABLE = "scrape_jobs"
 RAW_TABLE = "room_prices_raw"
-RAW_ON_CONFLICT = "user_id,slug,checkin,room"
+
+# IMPORTANT: include occupancy to avoid mixing 1/2/3/4 adult rates for the same room
+RAW_ON_CONFLICT = "user_id,slug,checkin,room,occupancy"
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -196,9 +196,6 @@ def _normalize_slug(v: str) -> str:
     return t.replace(" ", "")
 
 def _get_user_links(user_id: str) -> List[dict]:
-    """
-    Pull user_hotels + joined hotels + joined hotel_profiles(booking_slug,booking_cc) via hotels table.
-    """
     url = f"{SUPABASE_URL}/rest/v1/user_hotels"
     params = {
         "select": "hotel_id,link_type,inserted_at,hotels(name,url,hotel_profiles(booking_slug,booking_cc))",
@@ -238,7 +235,6 @@ def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:
     links = _get_user_links(user_id)
     if not links:
         return None
-
     for l in links:
         if l.get("link_type") == "own":
             slug = _normalize_slug(l.get("booking_slug") or l.get("url") or "")
@@ -309,6 +305,35 @@ PRICE_SELECTORS = [
     "[data-testid='price-and-discounted-price']",
 ]
 
+OCC_PATTERNS = [
+    r"\bfor\s+(\d+)\s+adults?\b",
+    r"\bprice\s+for\s+(\d+)\s+adults?\b",
+    r"\b(\d+)\s+adults?\b",
+    r"\bfor\s+(\d+)\s+people\b",
+]
+
+def clean_price(text: str) -> Optional[float]:
+    if not text:
+        return None
+    txt = text.replace("\u00A0", " ").replace(",", ".")
+    m = re.search(r"(\d+(?:\.\d+)?)", txt)
+    return float(m.group(1)) if m else None
+
+def find_adults_in_text(text: str) -> Optional[int]:
+    if not text:
+        return None
+    t = " ".join(text.split()).lower()
+    for pat in OCC_PATTERNS:
+        m = re.search(pat, t)
+        if m:
+            try:
+                n = int(m.group(1))
+                if 1 <= n <= 8:
+                    return n
+            except Exception:
+                pass
+    return None
+
 def get_occupancy_from_name(name: str) -> int:
     n = (name or "").lower()
     if any(x in n for x in ["triposteljna", "troposteljna", "triple"]):
@@ -322,13 +347,6 @@ def get_occupancy_from_name(name: str) -> int:
 def is_valid_room(name: str) -> bool:
     n = (name or "").lower()
     return not any(x in n for x in ["dnevna soba", "review", "rezultati", "ocena"])
-
-def clean_price(text: str) -> Optional[float]:
-    if not text:
-        return None
-    txt = text.replace("\u00A0", " ").replace(",", ".")
-    m = re.search(r"(\d+(?:\.\d+)?)", txt)
-    return float(m.group(1)) if m else None
 
 def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, adults: int, lang="en-gb"):
     cc_eff = (cc or DEFAULT_CC).lower()
@@ -378,8 +396,42 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
             break
         last_h = h
 
-def collect_room_rows(page) -> List[Dict[str, float]]:
-    results: List[Dict[str, float]] = []
+def extract_price_with_context(price_el) -> (Optional[float], Optional[int]):
+    """
+    Returns (price, adults_from_context)
+    Looks up to 3 ancestor levels for 'Price for X adults' etc.
+    """
+    price = None
+    try:
+        price = clean_price(price_el.inner_text())
+    except Exception:
+        return None, None
+    if price is None:
+        return None, None
+    try:
+        context_text = price_el.evaluate(
+            """(el) => {
+                let txt = '';
+                let node = el;
+                for (let i=0; i<3 && node; i++){
+                  txt += ' ' + (node.innerText || '');
+                  node = node.parentElement;
+                }
+                return txt;
+            }"""
+        )
+    except Exception:
+        context_text = ""
+    occ = find_adults_in_text(context_text)
+    return price, occ
+
+def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
+    """
+    From the rendered room table, collect only prices that correspond to the
+    requested 'adults' by inspecting nearby text ('Price for 3 adults').
+    Fallback to room-name heuristic only if occupancy can't be determined.
+    """
+    results: List[Dict[str, Any]] = []
     for table_sel in ROOM_TABLE_SELECTORS:
         rows = page.query_selector_all(table_sel)
         for row in rows:
@@ -393,19 +445,55 @@ def collect_room_rows(page) -> List[Dict[str, float]]:
                 if not room_name or not is_valid_room(room_name):
                     continue
 
-                price = None
-                for td in row.query_selector_all("td,div,section"):
-                    for psel in PRICE_SELECTORS:
-                        el = td.query_selector(psel)
-                        if el:
-                            price = clean_price(el.inner_text())
-                            if price is not None:
-                                break
-                    if price is not None:
-                        break
+                accepted_any = False
 
-                if price is not None:
-                    results.append({"room": re.sub(r"\s+", " ", room_name), "price": price})
+                # Scan all likely price cells in this row
+                for td in row.query_selector_all("td,div,section"):
+                    # try every selector in the cell
+                    for psel in PRICE_SELECTORS:
+                        pel = td.query_selector(psel)
+                        if not pel:
+                            continue
+                        price, occ_ctx = extract_price_with_context(pel)
+                        if price is None:
+                            continue
+
+                        if occ_ctx is not None:
+                            # only accept if the context explicitly matches
+                            if occ_ctx == adults:
+                                results.append({
+                                    "room": re.sub(r"\s+", " ", room_name),
+                                    "price": price,
+                                    "occupancy": adults,
+                                })
+                                accepted_any = True
+                            continue  # try other prices; there can be multiple rate plans
+
+                    # continue scanning other children in the same row
+
+                # Fallback: if we saw no context-verified price, use room-name heuristic
+                if not accepted_any:
+                    inferred = get_occupancy_from_name(room_name)
+                    if inferred == adults:
+                        # pick the first found price in the row as a fallback
+                        # (still better than mixing with a different adults count)
+                        first_price = None
+                        for td in row.query_selector_all("td,div,section"):
+                            for psel in PRICE_SELECTORS:
+                                pel = td.query_selector(psel)
+                                if pel:
+                                    first_price = clean_price(pel.inner_text())
+                                    if first_price is not None:
+                                        break
+                            if first_price is not None:
+                                break
+                        if first_price is not None:
+                            results.append({
+                                "room": re.sub(r"\s+", " ", room_name),
+                                "price": first_price,
+                                "occupancy": adults,
+                            })
+
             except Exception:
                 continue
     return results
@@ -422,8 +510,7 @@ def scrape_hotel_for_dates(
     For adults=1..4:
       - Load /hotel/{cc}/{slug}.html with given checkin/checkout
       - Expand/scroll
-      - Collect room rows
-      - Keep ONLY rows where inferred occupancy == adults
+      - Collect room prices that explicitly match requested adults
     Return: [{hotel, slug, checkin, room, occupancy, price}]
     """
     def cancelled() -> bool:
@@ -471,19 +558,17 @@ def scrape_hotel_for_dates(
 
                 if cancelled(): break
 
-                rows = collect_room_rows(page)
+                rows = collect_room_rows_for_adults(page, adults)
                 for r in rows:
-                    if cancelled(): break
-                    # keep all room rows (store occupancy we infer)
-                    occ_inferred = get_occupancy_from_name(r["room"])
                     out.append({
                         "hotel": name,
                         "slug": slug.lower(),
                         "checkin": checkin,
                         "room": r["room"],
-                        "occupancy": occ_inferred,
+                        "occupancy": r["occupancy"],  # equals 'adults'
                         "price": r["price"],
                     })
+
             except Exception as e:
                 print("⚠️ Page error:", e)
                 continue
@@ -499,7 +584,6 @@ def upsert_rows(table: str, rows: List[dict], on_conflict: str):
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     params = {"on_conflict": on_conflict}
     headers = supabase_headers(upsert=True)
-    # Chunk to avoid large payloads
     for i in range(0, len(rows), 400):
         batch = rows[i:i+400]
         r = requests.post(url, params=params, json=batch, headers=headers, timeout=60)
@@ -508,11 +592,15 @@ def upsert_rows(table: str, rows: List[dict], on_conflict: str):
         else:
             print(f"✅ Upserted {len(batch)} rows into {table}")
 
-def dedupe_min_per_room(rows: List[dict]) -> List[dict]:
+def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:
+    """
+    Keep the minimum price per (slug, checkin, room, occupancy).
+    This is crucial to avoid mixing 1/2/3/4 adult rates for the same room.
+    """
     best: Dict[tuple, dict] = {}
     for r in rows:
         slug_lower = (r["slug"] or "").lower()
-        key = (slug_lower, r["checkin"], r["room"])
+        key = (slug_lower, r["checkin"], r["room"], int(r["occupancy"]))
         price = r["price"]
         if price is None:
             continue
@@ -522,8 +610,8 @@ def dedupe_min_per_room(rows: List[dict]) -> List[dict]:
                 "slug": slug_lower,
                 "checkin": r["checkin"],
                 "room": r["room"],
-                "occupancy": r["occupancy"],
-                "price": price,
+                "occupancy": int(r["occupancy"]),
+                "price": float(price),
             }
     return list(best.values())
 
@@ -548,7 +636,7 @@ def _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
         )
         if is_canceled(job_id):
             return []
-        room_level = dedupe_min_per_room(raw)
+        room_level = dedupe_min_per_room_and_occupancy(raw)
         for r in room_level:
             r["user_id"] = user_id
             r["job_id"] = job_id
@@ -580,7 +668,7 @@ def process_job(initial_job_row: dict):
     for c in competitors:
         hotels.append({"name": c["name"], "slug": c["slug"], "cc": c.get("cc"), "own": False})
 
-    # 🔎 Optional filter: restrict to slugs requested by the user (meta.slugs)
+    # Optional filter from job.meta.slugs — ALWAYS keep own hotel
     try:
         job_slugs = set(((job.get("meta") or {}).get("slugs") or []))
     except Exception:
@@ -588,14 +676,11 @@ def process_job(initial_job_row: dict):
 
     if job_slugs:
         before = len(hotels)
-
-        # Keep requested slugs OR force-include own
         hotels = [
             h for h in hotels
             if (h.get("slug") or "").lower() in job_slugs or h.get("own") is True
         ]
-
-        # De-dupe by slug
+        # de-dupe
         seen = set()
         deduped = []
         for h in hotels:
@@ -604,11 +689,7 @@ def process_job(initial_job_row: dict):
                 seen.add(s)
                 deduped.append(h)
         hotels = deduped
-
-        print(
-            f"🔎 Slug filter active ({len(job_slugs)} slugs). "
-            f"{before}→{len(hotels)} hotels after filter (own forced in)."
-        )
+        print(f"🔎 Slug filter active ({len(job_slugs)} slugs). {before}→{len(hotels)} hotels (own forced in).")
 
     print(
         f"🏨 Own present: {bool(own)} | Competitors: {len(competitors)} | "
@@ -619,7 +700,6 @@ def process_job(initial_job_row: dict):
     set_job_fields(job_id, total_steps=(total_steps or None), completed_steps=0)
 
     completed = 0
-
     def should_cancel() -> bool:
         return is_canceled(job_id)
 
@@ -642,7 +722,7 @@ def process_job(initial_job_row: dict):
                 if should_cancel():
                     print(f"🛑 Job {job_id} canceled before scheduling.")
                     break
-                name, slug = h["name"], h["slug"]
+                name = h["name"]
                 is_own = bool(h.get("own"))
 
                 for i in range(range_days):
@@ -674,7 +754,6 @@ def process_job(initial_job_row: dict):
                         completed += 1
                         set_job_fields(job_id, completed_steps=completed)
 
-        # flush remaining
         if results_buffer:
             upsert_room_level(user_id, results_buffer)
             results_buffer.clear()
@@ -715,7 +794,6 @@ def run_for_user(user_id: str, start_date: str, days: int):
         print("No selected hotels for user.")
         return
 
-    # resolve CCs
     for h in hotels:
         if not h.get("cc") and RESOLVE_CC_IF_MISSING:
             h["cc"] = resolve_cc_for_slug(h["slug"]) or DEFAULT_CC
@@ -770,4 +848,3 @@ if __name__ == "__main__":
         run_for_user(run_uid, start, days)
     else:
         main()
-
