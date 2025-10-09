@@ -27,15 +27,6 @@
         "documentation": {}
     },
     {
-        "label": "json",
-        "kind": 6,
-        "isExtraImport": true,
-        "importPath": "json",
-        "description": "json",
-        "detail": "json",
-        "documentation": {}
-    },
-    {
         "label": "functools",
         "kind": 6,
         "isExtraImport": true,
@@ -176,11 +167,19 @@
         "documentation": {}
     },
     {
+        "label": "TimeoutError",
+        "importPath": "playwright.sync_api",
+        "description": "playwright.sync_api",
+        "isExtraImport": true,
+        "detail": "playwright.sync_api",
+        "documentation": {}
+    },
+    {
         "label": "supabase_headers",
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\n        \"apikey\": SUPABASE_KEY,\n        \"Authorization\": f\"Bearer {SUPABASE_KEY}\",\n    }\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n    if upsert:\n        h[\"Prefer\"] = \"resolution=merge-duplicates,return=representation\"\n    return h",
+        "peekOfCode": "def supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n    if upsert:\n        h[\"Prefer\"] = \"resolution=merge-duplicates,return=representation\"\n    return h\ndef http_get(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    r = requests.get(url, params=params, headers=supabase_headers(json_pref=False), timeout=30)",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -198,16 +197,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    headers = supabase_headers()\n    if prefer_return:\n        headers[\"Prefer\"] = \"return=representation\"\n    r = requests.patch(url, params=params, json=json_body, headers=headers, timeout=30)\n    r.raise_for_status()\n    return r\ndef http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"",
-        "detail": "scrape_worker",
-        "documentation": {}
-    },
-    {
-        "label": "http_post",
-        "kind": 2,
-        "importPath": "scrape_worker",
-        "description": "scrape_worker",
-        "peekOfCode": "def http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    headers = supabase_headers(upsert=upsert)\n    r = requests.post(url, params=params, json=json_body, headers=headers, timeout=60)\n    r.raise_for_status()\n    return r\n# ------------------------------ Utilities -------------------------------------\ndef now_iso_z() -> str:\n    return dt.datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(\"+00:00\", \"Z\")\ndef chunked(items: List[Any], size: int) -> List[List[Any]]:",
+        "peekOfCode": "def http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    headers = supabase_headers()\n    if prefer_return:\n        headers[\"Prefer\"] = \"return=representation\"\n    r = requests.patch(url, params=params, json=json_body, headers=headers, timeout=30)\n    r.raise_for_status()\n    return r\n# ------------------------------ Utilities -------------------------------------\ndef now_iso_z() -> str:",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -297,7 +287,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def clean_price(text: str) -> Optional[float]:\n    if not text:\n        return None\n    txt = text.replace(\"\\u00A0\", \" \").replace(\",\", \".\")\n    m = re.search(r\"(\\d+(?:\\.\\d+)?)\", txt)\n    return float(m.group(1)) if m else None\ndef extract_explicit_adults(text: str) -> Optional[int]:\n    \"\"\"\n    Parse adult/guest count from text (EN + SI common forms).\n    \"\"\"",
+        "peekOfCode": "def clean_price(text: str) -> Optional[float]:\n    if not text:\n        return None\n    txt = text.replace(\"\\u00A0\", \" \").replace(\",\", \".\")\n    m = re.search(r\"(\\d+(?:\\.\\d+)?)\", txt)\n    return float(m.group(1)) if m else None\ndef extract_explicit_adults(text: str) -> Optional[int]:\n    if not text:\n        return None\n    t = text.lower()",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -306,7 +296,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def extract_explicit_adults(text: str) -> Optional[int]:\n    \"\"\"\n    Parse adult/guest count from text (EN + SI common forms).\n    \"\"\"\n    if not text:\n        return None\n    t = text.lower()\n    for pat in [\n        r\"\\b(\\d+)\\s*(?:adult|adults)\\b\",\n        r\"\\b(\\d+)\\s*(?:guest|guests)\\b\",",
+        "peekOfCode": "def extract_explicit_adults(text: str) -> Optional[int]:\n    if not text:\n        return None\n    t = text.lower()\n    for pat in [\n        r\"\\b(\\d+)\\s*(?:adult|adults)\\b\",\n        r\"\\b(\\d+)\\s*(?:guest|guests)\\b\",\n        r\"\\b(\\d+)\\s*(?:person|persons|people)\\b\",\n        r\"\\bza\\s+(\\d+)\\s*oseb[ioa]?\\b\",\n        r\"\\b(\\d+)\\s*oseb[ioa]?\\b\",",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -333,7 +323,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def collect_room_rows_for_adults(page, adults: int, *, strict: bool) -> List[Dict[str, float]]:\n    \"\"\"\n    If strict=True → only accept prices with explicit occupancy match near price.\n    If strict=False → fallback path:\n        - accept if row text implies >= requested adults\n        - or, if nothing is explicit, accept the first visible price in that room row\n          (still min-per-room after parse)\n    \"\"\"\n    results: List[Dict[str, float]] = []\n    def occupancy_match_for_element(el) -> Optional[int]:",
+        "peekOfCode": "def collect_room_rows_for_adults(page, adults: int, *, strict: bool) -> List[Dict[str, float]]:\n    results: List[Dict[str, float]] = []\n    def occupancy_match_for_element(el) -> Optional[int]:\n        try:\n            t = (el.inner_text() or \"\").strip()\n            n = extract_explicit_adults(t)\n            if n: return n\n            parent = el.locator(\"xpath=ancestor::*[self::td or self::div or self::section][1]\")\n            for sel in OCC_NEAR_PRICE_SELECTORS:\n                occ_el = parent.locator(sel).first",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -432,7 +422,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "DEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (os.getenv(\"COMMON_CCS\") or\n              \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\").split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\n# Must match your UNIQUE index exactly:",
+        "peekOfCode": "DEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (os.getenv(\"COMMON_CCS\") or\n              \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\").split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -441,7 +431,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "RESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (os.getenv(\"COMMON_CCS\") or\n              \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\").split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\n# Must match your UNIQUE index exactly:\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"",
+        "peekOfCode": "RESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (os.getenv(\"COMMON_CCS\") or\n              \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\").split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -450,7 +440,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "COMMON_CCS = (os.getenv(\"COMMON_CCS\") or\n              \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\").split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\n# Must match your UNIQUE index exactly:\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (",
+        "peekOfCode": "COMMON_CCS = (os.getenv(\"COMMON_CCS\") or\n              \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\").split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -459,7 +449,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "PAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\n# Must match your UNIQUE index exactly:\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"",
+        "peekOfCode": "PAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -468,7 +458,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "WAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\n# Must match your UNIQUE index exactly:\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"",
+        "peekOfCode": "WAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -477,7 +467,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "SCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\n# Must match your UNIQUE index exactly:\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)",
+        "peekOfCode": "SCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ------------------------------ HTTP helpers ----------------------------------",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -486,7 +476,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\n# Must match your UNIQUE index exactly:\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ------------------------------ HTTP helpers ----------------------------------",
+        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ------------------------------ HTTP helpers ----------------------------------\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -495,7 +485,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\n# Must match your UNIQUE index exactly:\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ------------------------------ HTTP helpers ----------------------------------\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:",
+        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ------------------------------ HTTP helpers ----------------------------------\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -504,7 +494,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "RAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ------------------------------ HTTP helpers ----------------------------------\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\n        \"apikey\": SUPABASE_KEY,",
+        "peekOfCode": "RAW_ON_CONFLICT = \"user_id,slug,checkin,room\"\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ------------------------------ HTTP helpers ----------------------------------\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -513,7 +503,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "USER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ------------------------------ HTTP helpers ----------------------------------\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\n        \"apikey\": SUPABASE_KEY,\n        \"Authorization\": f\"Bearer {SUPABASE_KEY}\",",
+        "peekOfCode": "USER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ------------------------------ HTTP helpers ----------------------------------\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -522,7 +512,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\",\"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\",\"a:has-text('Show all')\",\n    \"a:has-text('Show more')\",\"a:has-text('See all rooms')\",\n    # Slovenian variants you used earlier\n    \"button:has-text('Prikaži več')\",\"button:has-text('Prikaži vse')\",\n    \"a:has-text('Prikaži več')\",\"a:has-text('Prikaži vse')\",\n]\nROOM_TABLE_SELECTORS = [\n    \"tr.js-rt-block-row\",",
+        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\",\"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\",\"a:has-text('Show all')\",\n    \"a:has-text('Show more')\",\"a:has-text('See all rooms')\",\n    \"button:has-text('Prikaži več')\",\"button:has-text('Prikaži vse')\",\n    \"a:has-text('Prikaži več')\",\"a:has-text('Prikaži vse')\",\n]\nROOM_TABLE_SELECTORS = [\n    \"tr.js-rt-block-row\",\n    \"table.hprt-table tr\",",
         "detail": "scrape_worker",
         "documentation": {}
     },

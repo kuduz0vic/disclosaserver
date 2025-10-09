@@ -16,22 +16,21 @@
 #   SCROLL_PASSES=12
 #   NO_SANDBOX=1
 #
-# Tables touched:
+# Tables:
 #   - scrape_jobs
 #   - user_hotels (join hotels(name,url,hotel_profiles(booking_slug,booking_cc)))
 #   - room_prices_raw (UNIQUE: user_id, slug, checkin, room)
 #
 # Notes:
-#   - Competitors are scraped in **strict** mode (only prices with explicit
-#     "X adults/guests/oseb" context).
-#   - Own hotel is scraped in **relaxed** mode (fallbacks kick in if Booking
-#     doesn’t print explicit occupancy near price).
+#   - Competitors scraped in strict mode (only prices with explicit "X adults").
+#   - Own hotel scraped in relaxed mode (fallbacks if Booking doesn’t print
+#     explicit occupancy near the price).
+#   - If job.meta.slugs is present, we still keep your OWN hotel even if not listed.
 # ------------------------------------------------------------------------------
 
 import os
 import re
 import time
-import json
 import functools
 import threading
 import datetime as dt
@@ -66,8 +65,6 @@ SCROLL_PASSES = int(os.getenv("SCROLL_PASSES", "12"))
 
 JOBS_TABLE = "scrape_jobs"
 RAW_TABLE = "room_prices_raw"
-
-# Must match your UNIQUE index exactly:
 RAW_ON_CONFLICT = "user_id,slug,checkin,room"
 
 USER_AGENT = (
@@ -79,10 +76,7 @@ USER_AGENT = (
 # ------------------------------ HTTP helpers ----------------------------------
 
 def supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:
-    h = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-    }
+    h = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
     if json_pref:
         h["Content-Type"] = "application/json"
     if upsert:
@@ -101,13 +95,6 @@ def http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], pre
     if prefer_return:
         headers["Prefer"] = "return=representation"
     r = requests.patch(url, params=params, json=json_body, headers=headers, timeout=30)
-    r.raise_for_status()
-    return r
-
-def http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False) -> requests.Response:
-    url = f"{SUPABASE_URL}{path}"
-    headers = supabase_headers(upsert=upsert)
-    r = requests.post(url, params=params, json=json_body, headers=headers, timeout=60)
     r.raise_for_status()
     return r
 
@@ -175,7 +162,7 @@ def is_canceled(job_id: str) -> bool:
 def _normalize_slug(v: str) -> str:
     if not v:
         return ""
-    t = v.trim() if hasattr(v, "trim") else v.strip()
+    t = v.strip()
     if t.startswith("http"):
         try:
             u = urlparse(t)
@@ -286,7 +273,6 @@ EXPAND_SELECTORS = [
     "button:has-text('Show all')","button:has-text('Show more')",
     "button:has-text('See all rooms')","a:has-text('Show all')",
     "a:has-text('Show more')","a:has-text('See all rooms')",
-    # Slovenian variants you used earlier
     "button:has-text('Prikaži več')","button:has-text('Prikaži vse')",
     "a:has-text('Prikaži več')","a:has-text('Prikaži vse')",
 ]
@@ -315,9 +301,6 @@ def clean_price(text: str) -> Optional[float]:
     return float(m.group(1)) if m else None
 
 def extract_explicit_adults(text: str) -> Optional[int]:
-    """
-    Parse adult/guest count from text (EN + SI common forms).
-    """
     if not text:
         return None
     t = text.lower()
@@ -351,6 +334,8 @@ def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, a
         "sb_price_type": "total",
     }
     return f"{base}?{urlencode(qs)}"
+
+from playwright.sync_api import TimeoutError
 
 def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bool]] = None):
     def cancelled() -> bool:
@@ -387,13 +372,6 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
         last_h = h
 
 def collect_room_rows_for_adults(page, adults: int, *, strict: bool) -> List[Dict[str, float]]:
-    """
-    If strict=True → only accept prices with explicit occupancy match near price.
-    If strict=False → fallback path:
-        - accept if row text implies >= requested adults
-        - or, if nothing is explicit, accept the first visible price in that room row
-          (still min-per-room after parse)
-    """
     results: List[Dict[str, float]] = []
 
     def occupancy_match_for_element(el) -> Optional[int]:
@@ -425,7 +403,6 @@ def collect_room_rows_for_adults(page, adults: int, *, strict: bool) -> List[Dic
                 if not room_name:
                     continue
 
-                # gather all candidate prices in the row
                 all_prices: List[float] = []
                 matched_prices: List[float] = []
 
@@ -444,14 +421,12 @@ def collect_room_rows_for_adults(page, adults: int, *, strict: bool) -> List[Dic
                     continue
 
                 if not strict:
-                    # relaxed fallback 1: row text implies compatible occupancy
                     full_txt = (row.inner_text() or "").strip()
                     implied = extract_explicit_adults(full_txt)
                     if implied is not None and implied >= adults and all_prices:
                         results.append({"room": re.sub(r"\s+", " ", room_name), "price": min(all_prices), "adults": adults})
                         continue
 
-                    # relaxed fallback 2: nothing explicit — use the first visible price if available
                     if all_prices:
                         results.append({"room": re.sub(r"\s+", " ", room_name), "price": min(all_prices), "adults": adults})
                         continue
@@ -588,7 +563,7 @@ def _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
             hotel.get("cc"),
             checkin,
             checkout,
-            strict=not bool(hotel.get("own")),  # relaxed for own hotel
+            strict=not bool(hotel.get("own")),  # relaxed for own
             should_cancel=lambda: is_canceled(job_id),
         )
         if is_canceled(job_id):
@@ -625,23 +600,32 @@ def process_job(initial_job_row: dict):
     for c in competitors:
         hotels.append({"name": c["name"], "slug": c["slug"], "cc": c.get("cc"), "own": False})
 
-    # Optional: filter by slugs provided in meta
+    # Optional: filter by meta.slugs but ALWAYS keep own
     try:
-        job_slugs = set(((job.get("meta") or {}).get("slugs") or []))
+        job_slugs = {s.lower() for s in ((job.get("meta") or {}).get("slugs") or []) if isinstance(s, str)}
     except Exception:
         job_slugs = set()
+
     if job_slugs:
         before = len(hotels)
-        hotels = [h for h in hotels if (h.get("slug") or "").lower() in job_slugs]
-        print(f"🔎 Slug filter active ({len(job_slugs)} slugs). {before}→{len(hotels)} hotels remain.")
+        kept: List[Dict[str, Any]] = []
+        for h in hotels:
+            slug = (h.get("slug") or "").lower()
+            if h.get("own") is True:
+                kept.append(h)  # never drop own
+            elif slug in job_slugs:
+                kept.append(h)
+        hotels = kept
+        print(f"🔎 Slug filter active ({len(job_slugs)} slugs). {before}→{len(hotels)} after filter (own kept).")
+        print("   Kept hotels:", ", ".join([f"{'[OWN]' if h.get('own') else '[COMP]'} {h['name']} ({h['slug']})" for h in hotels]))
         if not hotels:
             set_job_fields(
                 job_id,
                 status="done",
                 finished_at=now_iso_z(),
-                meta={**(job.get("meta") or {}), "note": "No matching hotels for provided slugs"}
+                meta={**(job.get("meta") or {}), "note": "No matching hotels; own kept rule left none (no own?)"}
             )
-            print(f"ℹ️ Job {job_id} finished — no matching hotels for provided slugs.")
+            print(f"ℹ️ Job {job_id} finished — nothing to scrape after filter.")
             return
 
     print(f"🚀 Processing job {job_id} for user {user_id} range_days={range_days}")
@@ -671,17 +655,13 @@ def process_job(initial_job_row: dict):
                 if should_cancel():
                     print(f"🛑 Job {job_id} canceled before scheduling.")
                     break
-                name = h["name"]
-                is_own = bool(h.get("own"))
-
                 for i in range(range_days):
                     if should_cancel():
                         print(f"🛑 Job {job_id} canceled during scheduling.")
                         break
-
                     checkin = (start_date + dt.timedelta(days=i)).strftime("%Y-%m-%d")
                     checkout = (start_date + dt.timedelta(days=i + 1)).strftime("%Y-%m-%d")
-                    set_job_fields(job_id, meta={"last_hotel": name, "last_checkin": checkin, "own": is_own})
+                    set_job_fields(job_id, meta={"last_hotel": h["name"], "last_checkin": checkin, "own": bool(h.get("own"))})
                     tasks.append(pool.submit(_scrape_task, job_id, user_id, h, checkin, checkout))
 
             for fut in as_completed(tasks):
