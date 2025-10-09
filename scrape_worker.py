@@ -22,16 +22,15 @@
 #   - room_prices_raw (UNIQUE: user_id, slug, checkin, room)
 #
 # Notes:
-#   - Only captures price **for the requested adults** by checking occupancy text
-#     near the price or in the row (e.g. "2 adults"/"2 guests"/"2 oseb").
-#   - If explicit occupancy text is not found, the row is skipped (safer than
-#     mixing a 1p price into a 3p run). You can relax this with the fallback flag.
+#   - Competitors are scraped in **strict** mode (only prices with explicit
+#     "X adults/guests/oseb" context).
+#   - Own hotel is scraped in **relaxed** mode (fallbacks kick in if Booking
+#     doesn’t print explicit occupancy near price).
 # ------------------------------------------------------------------------------
 
 import os
 import re
 import time
-import math
 import json
 import functools
 import threading
@@ -68,7 +67,7 @@ SCROLL_PASSES = int(os.getenv("SCROLL_PASSES", "12"))
 JOBS_TABLE = "scrape_jobs"
 RAW_TABLE = "room_prices_raw"
 
-# IMPORTANT → must match your UNIQUE index
+# Must match your UNIQUE index exactly:
 RAW_ON_CONFLICT = "user_id,slug,checkin,room"
 
 USER_AGENT = (
@@ -76,8 +75,6 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
-
-STRICT_OCCUPANCY_ONLY = True  # if True, require explicit “X adults/guests/oseb” near price
 
 # ------------------------------ HTTP helpers ----------------------------------
 
@@ -129,12 +126,7 @@ def chunked(items: List[Any], size: int) -> List[List[Any]]:
 def fetch_next_pending_job() -> Optional[dict]:
     r = http_get(
         f"/rest/v1/{JOBS_TABLE}",
-        {
-            "select": "*",
-            "status": "eq.pending",
-            "order": "created_at.asc",
-            "limit": 1,
-        },
+        {"select": "*", "status": "eq.pending", "order": "created_at.asc", "limit": 1},
     )
     rows = r.json()
     return rows[0] if rows else None
@@ -161,22 +153,14 @@ def set_job_fields(job_id: str, **patch):
         else:
             safe_patch[k] = v
     try:
-        http_patch(
-            f"/rest/v1/{JOBS_TABLE}",
-            {"id": f"eq.{job_id}"},
-            safe_patch,
-            prefer_return=False,
-        )
+        http_patch(f"/rest/v1/{JOBS_TABLE}", {"id": f"eq.{job_id}"}, safe_patch, prefer_return=False)
     except HTTPError as e:
         print("❌ set_job_fields error:", e, "| payload:", safe_patch, "| resp:", getattr(e.response, "text", "")[:400])
         raise
 
 def is_canceled(job_id: str) -> bool:
     try:
-        r = http_get(
-            f"/rest/v1/{JOBS_TABLE}",
-            {"select": "status", "id": f"eq.{job_id}", "limit": 1},
-        )
+        r = http_get(f"/rest/v1/{JOBS_TABLE}", {"select": "status", "id": f"eq.{job_id}", "limit": 1})
         rows = r.json()
         if not rows:
             return True
@@ -191,7 +175,7 @@ def is_canceled(job_id: str) -> bool:
 def _normalize_slug(v: str) -> str:
     if not v:
         return ""
-    t = v.strip()
+    t = v.trim() if hasattr(v, "trim") else v.strip()
     if t.startswith("http"):
         try:
             u = urlparse(t)
@@ -302,7 +286,7 @@ EXPAND_SELECTORS = [
     "button:has-text('Show all')","button:has-text('Show more')",
     "button:has-text('See all rooms')","a:has-text('Show all')",
     "a:has-text('Show more')","a:has-text('See all rooms')",
-    # few Slovenian variants you had
+    # Slovenian variants you used earlier
     "button:has-text('Prikaži več')","button:has-text('Prikaži vse')",
     "a:has-text('Prikaži več')","a:has-text('Prikaži vse')",
 ]
@@ -316,7 +300,6 @@ PRICE_SELECTORS = [
     ".prco-valign-middle-helper",
     ".bui-price-display__value",
 ]
-
 OCC_NEAR_PRICE_SELECTORS = [
     "[data-testid='occupancy']",
     "[data-testid='guests-count']",
@@ -334,12 +317,10 @@ def clean_price(text: str) -> Optional[float]:
 def extract_explicit_adults(text: str) -> Optional[int]:
     """
     Parse adult/guest count from text (EN + SI common forms).
-    Examples: '2 adults', '3 guests', 'za 2 osebi', 'za 3 osebe', '2 osebi', 'Sleeps 3'
     """
     if not text:
         return None
     t = text.lower()
-    # common markers
     for pat in [
         r"\b(\d+)\s*(?:adult|adults)\b",
         r"\b(\d+)\s*(?:guest|guests)\b",
@@ -367,8 +348,7 @@ def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, a
         "no_rooms": 1,
         "selected_currency": "EUR",
         "lang": lang,
-        # keep prices clear/consistent
-        "sb_price_type": "total",  # Booking often honors this
+        "sb_price_type": "total",
     }
     return f"{base}?{urlencode(qs)}"
 
@@ -406,21 +386,21 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
             break
         last_h = h
 
-def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, float]]:
+def collect_room_rows_for_adults(page, adults: int, *, strict: bool) -> List[Dict[str, float]]:
     """
-    For each room-row, find prices that explicitly refer to the *requested adults*,
-    either in the same cell or in nearby occupancy chips/text. Take min price.
+    If strict=True → only accept prices with explicit occupancy match near price.
+    If strict=False → fallback path:
+        - accept if row text implies >= requested adults
+        - or, if nothing is explicit, accept the first visible price in that room row
+          (still min-per-room after parse)
     """
     results: List[Dict[str, float]] = []
 
     def occupancy_match_for_element(el) -> Optional[int]:
-        """Look for explicit occupancy text next to/inside the price cell."""
         try:
-            # Check immediate container text
             t = (el.inner_text() or "").strip()
             n = extract_explicit_adults(t)
             if n: return n
-            # Climb a bit and check siblings with occupancy testids/classes
             parent = el.locator("xpath=ancestor::*[self::td or self::div or self::section][1]")
             for sel in OCC_NEAR_PRICE_SELECTORS:
                 occ_el = parent.locator(sel).first
@@ -436,7 +416,6 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, float]]:
         rows = page.query_selector_all(table_sel)
         for row in rows:
             try:
-                # Name
                 name_el = (
                     row.query_selector(".hprt-roomtype-icon-link")
                     or row.query_selector(".hprt-roomtype-name")
@@ -446,51 +425,40 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, float]]:
                 if not room_name:
                     continue
 
-                # Gather candidate prices (per row there may be multiple rate cells)
+                # gather all candidate prices in the row
+                all_prices: List[float] = []
                 matched_prices: List[float] = []
 
-                # First pass: look for prices that explicitly say N adults near them
                 for psel in PRICE_SELECTORS:
                     for price_el in row.query_selector_all(psel):
-                        price_val = clean_price(price_el.inner_text())
-                        if price_val is None:
+                        pv = clean_price(price_el.inner_text())
+                        if pv is None:
                             continue
+                        all_prices.append(pv)
                         occ = occupancy_match_for_element(price_el)
-                        if occ is not None:
-                            if occ == adults:
-                                matched_prices.append(price_val)
-                        else:
-                            # No explicit occupancy found near this price
-                            if not STRICT_OCCUPANCY_ONLY:
-                                # Optional relaxed mode: allow when row implies >= requested adults
-                                row_text = (row.inner_text() or "").strip()
-                                implied = extract_explicit_adults(row_text)
-                                if implied is not None and implied >= adults:
-                                    matched_prices.append(price_val)
-
-                if not matched_prices:
-                    # Second (very conservative) pass: search the row text only
-                    if not STRICT_OCCUPANCY_ONLY:
-                        full_txt = (row.inner_text() or "").strip()
-                        implied = extract_explicit_adults(full_txt)
-                        if implied is not None and implied >= adults:
-                            # pick any visible price if occupancy seems compatible
-                            for psel in PRICE_SELECTORS:
-                                el = row.query_selector(psel)
-                                if el:
-                                    pv = clean_price(el.inner_text())
-                                    if pv is not None:
-                                        matched_prices.append(pv)
-                                        break
+                        if occ is not None and occ == adults:
+                            matched_prices.append(pv)
 
                 if matched_prices:
-                    results.append({
-                        "room": re.sub(r"\s+", " ", room_name),
-                        "price": min(matched_prices),
-                        "adults": adults,
-                    })
+                    results.append({"room": re.sub(r"\s+", " ", room_name), "price": min(matched_prices), "adults": adults})
+                    continue
+
+                if not strict:
+                    # relaxed fallback 1: row text implies compatible occupancy
+                    full_txt = (row.inner_text() or "").strip()
+                    implied = extract_explicit_adults(full_txt)
+                    if implied is not None and implied >= adults and all_prices:
+                        results.append({"room": re.sub(r"\s+", " ", room_name), "price": min(all_prices), "adults": adults})
+                        continue
+
+                    # relaxed fallback 2: nothing explicit — use the first visible price if available
+                    if all_prices:
+                        results.append({"room": re.sub(r"\s+", " ", room_name), "price": min(all_prices), "adults": adults})
+                        continue
+
             except Exception:
                 continue
+
     return results
 
 def scrape_hotel_for_dates(
@@ -499,13 +467,10 @@ def scrape_hotel_for_dates(
     cc: Optional[str],
     checkin: str,
     checkout: str,
+    *,
+    strict: bool,
     should_cancel: Optional[Callable[[], bool]] = None,
 ) -> List[dict]:
-    """
-    Loads the hotel for adults=1..4 and captures prices **only** when the
-    surrounding text clearly refers to the requested adults.
-    Return: [{hotel, slug, checkin, room, occupancy, price}]
-    """
     def cancelled() -> bool:
         return bool(should_cancel and should_cancel())
 
@@ -518,7 +483,6 @@ def scrape_hotel_for_dates(
             viewport={"width": 1400, "height": 900},
             user_agent=USER_AGENT,
         )
-        # Block heavy resources
         context.route(
             "**/*",
             lambda route: route.abort()
@@ -549,7 +513,7 @@ def scrape_hotel_for_dates(
                     print("⚠️ No room table found.")
                     continue
 
-                rows = collect_room_rows_for_adults(page, adults=adults)
+                rows = collect_room_rows_for_adults(page, adults=adults, strict=strict)
 
                 for r in rows:
                     if cancelled(): break
@@ -558,7 +522,7 @@ def scrape_hotel_for_dates(
                         "slug": slug.lower(),
                         "checkin": checkin,
                         "room": r["room"],
-                        "occupancy": adults,            # guaranteed by filter
+                        "occupancy": adults,
                         "price": r["price"],
                     })
             except Exception as e:
@@ -579,7 +543,6 @@ def upsert_rows(table: str, rows: List[dict], on_conflict: str):
     for batch in chunked(rows, 400):
         r = requests.post(url, params=params, json=batch, headers=headers, timeout=60)
         if r.status_code not in (200, 201):
-            # Bubble up proper message (most common: 42P10 if UNIQUE missing)
             print(f"❌ Upsert into {table} failed:", r.status_code, r.text[:400])
             r.raise_for_status()
         else:
@@ -620,8 +583,13 @@ def _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
         return []
     try:
         raw = scrape_hotel_for_dates(
-            hotel["name"], hotel["slug"], hotel.get("cc"), checkin, checkout,
-            should_cancel=lambda: is_canceled(job_id)
+            hotel["name"],
+            hotel["slug"],
+            hotel.get("cc"),
+            checkin,
+            checkout,
+            strict=not bool(hotel.get("own")),  # relaxed for own hotel
+            should_cancel=lambda: is_canceled(job_id),
         )
         if is_canceled(job_id):
             return []
@@ -657,7 +625,7 @@ def process_job(initial_job_row: dict):
     for c in competitors:
         hotels.append({"name": c["name"], "slug": c["slug"], "cc": c.get("cc"), "own": False})
 
-    # Optional filter by explicit slugs from meta
+    # Optional: filter by slugs provided in meta
     try:
         job_slugs = set(((job.get("meta") or {}).get("slugs") or []))
     except Exception:
@@ -688,7 +656,7 @@ def process_job(initial_job_row: dict):
         return is_canceled(job_id)
 
     try:
-        # Resolve missing CCs if requested
+        # Resolve missing CCs
         for h in hotels:
             if not h.get("cc") and RESOLVE_CC_IF_MISSING:
                 resolved = resolve_cc_for_slug(h["slug"])
@@ -703,7 +671,7 @@ def process_job(initial_job_row: dict):
                 if should_cancel():
                     print(f"🛑 Job {job_id} canceled before scheduling.")
                     break
-                name, slug = h["name"], h["slug"]
+                name = h["name"]
                 is_own = bool(h.get("own"))
 
                 for i in range(range_days):
@@ -731,11 +699,9 @@ def process_job(initial_job_row: dict):
                     print("⚠️ Parallel step error:", e)
                     set_job_fields(job_id, last_error=str(e))
                 finally:
-                    nonlocal_completed = None
                     with STEP_LOCK:
                         completed += 1
-                        nonlocal_completed = completed
-                    set_job_fields(job_id, completed_steps=nonlocal_completed)
+                        set_job_fields(job_id, completed_steps=completed)
 
         if results_buffer:
             upsert_room_level(user_id, results_buffer)
@@ -777,7 +743,6 @@ def run_for_user(user_id: str, start_date: str, days: int):
         print("No selected hotels for user.")
         return
 
-    # resolve CCs
     for h in hotels:
         if not h.get("cc") and RESOLVE_CC_IF_MISSING:
             h["cc"] = resolve_cc_for_slug(h["slug"]) or DEFAULT_CC
