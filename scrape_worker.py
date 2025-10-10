@@ -21,11 +21,10 @@
 #   - user_hotels (join hotels(name,url,hotel_profiles(booking_slug,booking_cc)))
 #   - room_prices_raw (UNIQUE: user_id, slug, checkin, room)
 #
-# Notes:
-#   - Competitors scraped in strict mode (only prices with explicit "X adults").
-#   - Own hotel scraped in relaxed mode (fallbacks if Booking doesn’t print
-#     explicit occupancy near the price).
-#   - If job.meta.slugs is present, we still keep your OWN hotel even if not listed.
+# Strategy:
+#   - OWN hotel: "relaxed" (accept best visible price per row when needed)
+#   - COMPETITORS: "semi" (prefer explicit adults near price; fallback to row capacity; final fallback to any price)
+#   - If job.meta.slugs is present, own is ALWAYS kept even if not listed.
 # ------------------------------------------------------------------------------
 
 import os
@@ -285,12 +284,14 @@ PRICE_SELECTORS = [
     "[data-testid='price-and-discounted-price']",
     ".prco-valign-middle-helper",
     ".bui-price-display__value",
+    ".prco-inline-price",  # extra guard
 ]
 OCC_NEAR_PRICE_SELECTORS = [
     "[data-testid='occupancy']",
     "[data-testid='guests-count']",
     ".hprt-occupancy-occupancy-info",
     ".bui-u-sr-only",
+    "[class*='occupancy']",
 ]
 
 def clean_price(text: str) -> Optional[float]:
@@ -311,6 +312,7 @@ def extract_explicit_adults(text: str) -> Optional[int]:
         r"\bza\s+(\d+)\s*oseb[ioa]?\b",
         r"\b(\d+)\s*oseb[ioa]?\b",
         r"\bsleeps\s+(\d+)\b",
+        r"\bmax\s+(\d+)\b",
     ]:
         m = re.search(pat, t)
         if m:
@@ -334,8 +336,6 @@ def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, a
         "sb_price_type": "total",
     }
     return f"{base}?{urlencode(qs)}"
-
-from playwright.sync_api import TimeoutError
 
 def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bool]] = None):
     def cancelled() -> bool:
@@ -371,24 +371,39 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
             break
         last_h = h
 
-def collect_room_rows_for_adults(page, adults: int, *, strict: bool) -> List[Dict[str, float]]:
-    results: List[Dict[str, float]] = []
+def collect_row_prices(row) -> List[float]:
+    prices: List[float] = []
+    for psel in PRICE_SELECTORS:
+        for el in row.query_selector_all(psel):
+            pv = clean_price(el.inner_text())
+            if pv is not None:
+                prices.append(pv)
+    return prices
 
-    def occupancy_match_for_element(el) -> Optional[int]:
-        try:
-            t = (el.inner_text() or "").strip()
-            n = extract_explicit_adults(t)
-            if n: return n
-            parent = el.locator("xpath=ancestor::*[self::td or self::div or self::section][1]")
-            for sel in OCC_NEAR_PRICE_SELECTORS:
-                occ_el = parent.locator(sel).first
-                if occ_el and occ_el.count() > 0:
-                    txt = (occ_el.inner_text() or "").strip()
-                    n2 = extract_explicit_adults(txt)
-                    if n2: return n2
-        except Exception:
-            pass
-        return None
+def occupancy_match_for_element(el) -> Optional[int]:
+    try:
+        t = (el.inner_text() or "").strip()
+        n = extract_explicit_adults(t)
+        if n: return n
+        parent = el.locator("xpath=ancestor::*[self::td or self::div or self::section][1]")
+        for sel in OCC_NEAR_PRICE_SELECTORS:
+            occ_el = parent.locator(sel).first
+            if occ_el and occ_el.count() > 0:
+                txt = (occ_el.inner_text() or "").strip()
+                n2 = extract_explicit_adults(txt)
+                if n2: return n2
+    except Exception:
+        pass
+    return None
+
+def collect_room_rows_for_adults(page, adults: int, *, mode: str) -> List[Dict[str, float]]:
+    """
+    mode:
+      - "strict": require explicit adults near price (skip otherwise)
+      - "semi":   prefer explicit; else infer from row capacity; else any price
+      - "relaxed": take min visible price in row as last resort
+    """
+    results: List[Dict[str, float]] = []
 
     for table_sel in ROOM_TABLE_SELECTORS:
         rows = page.query_selector_all(table_sel)
@@ -403,34 +418,40 @@ def collect_room_rows_for_adults(page, adults: int, *, strict: bool) -> List[Dic
                 if not room_name:
                     continue
 
-                all_prices: List[float] = []
-                matched_prices: List[float] = []
+                all_prices = collect_row_prices(row)
+                if not all_prices:
+                    continue
 
+                # 1) explicit near price
+                matched_by_explicit: List[float] = []
                 for psel in PRICE_SELECTORS:
                     for price_el in row.query_selector_all(psel):
                         pv = clean_price(price_el.inner_text())
-                        if pv is None:
+                        if pv is None: 
                             continue
-                        all_prices.append(pv)
                         occ = occupancy_match_for_element(price_el)
                         if occ is not None and occ == adults:
-                            matched_prices.append(pv)
+                            matched_by_explicit.append(pv)
 
-                if matched_prices:
-                    results.append({"room": re.sub(r"\s+", " ", room_name), "price": min(matched_prices), "adults": adults})
+                if matched_by_explicit:
+                    results.append({"room": re.sub(r"\s+", " ", room_name), "price": min(matched_by_explicit), "adults": adults})
                     continue
 
-                if not strict:
-                    full_txt = (row.inner_text() or "").strip()
-                    implied = extract_explicit_adults(full_txt)
-                    if implied is not None and implied >= adults and all_prices:
+                # 2) row-level inference (capacity / sleeps)
+                full_txt = (row.inner_text() or "").strip()
+                inferred = extract_explicit_adults(full_txt)
+
+                if mode in ("semi", "relaxed"):
+                    if inferred is not None and inferred >= adults:
                         results.append({"room": re.sub(r"\s+", " ", room_name), "price": min(all_prices), "adults": adults})
                         continue
 
-                    if all_prices:
-                        results.append({"room": re.sub(r"\s+", " ", room_name), "price": min(all_prices), "adults": adults})
-                        continue
+                # 3) last resort for relaxed/semi: take any visible price
+                if mode in ("semi", "relaxed"):
+                    results.append({"room": re.sub(r"\s+", " ", room_name), "price": min(all_prices), "adults": adults})
+                    continue
 
+                # strict → skip if nothing matched
             except Exception:
                 continue
 
@@ -443,13 +464,15 @@ def scrape_hotel_for_dates(
     checkin: str,
     checkout: str,
     *,
-    strict: bool,
+    mode: str,  # "strict" | "semi" | "relaxed"
     should_cancel: Optional[Callable[[], bool]] = None,
 ) -> List[dict]:
     def cancelled() -> bool:
         return bool(should_cancel and should_cancel())
 
     out: List[dict] = []
+    per_adults_counts: Dict[int, int] = {}
+
     with sync_playwright() as p:
         extra_args = ["--no-sandbox"] if os.getenv("NO_SANDBOX") == "1" else []
         browser = p.chromium.launch(headless=True, args=extra_args)
@@ -488,8 +511,9 @@ def scrape_hotel_for_dates(
                     print("⚠️ No room table found.")
                     continue
 
-                rows = collect_room_rows_for_adults(page, adults=adults, strict=strict)
+                rows = collect_room_rows_for_adults(page, adults=adults, mode=mode)
 
+                per_adults_counts[adults] = len(rows)
                 for r in rows:
                     if cancelled(): break
                     out.append({
@@ -505,6 +529,10 @@ def scrape_hotel_for_dates(
                 continue
 
         browser.close()
+
+    # Short summary for visibility
+    total_rows = sum(per_adults_counts.values()) if per_adults_counts else 0
+    print(f"   ⤷ {name} [{slug}] mode={mode} → rows: {per_adults_counts} (total {total_rows})")
     return out
 
 # ------------------------------ Upserts ---------------------------------------
@@ -557,13 +585,14 @@ def _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
     if is_canceled(job_id):
         return []
     try:
+        mode = "relaxed" if hotel.get("own") else "semi"
         raw = scrape_hotel_for_dates(
             hotel["name"],
             hotel["slug"],
             hotel.get("cc"),
             checkin,
             checkout,
-            strict=not bool(hotel.get("own")),  # relaxed for own
+            mode=mode,
             should_cancel=lambda: is_canceled(job_id),
         )
         if is_canceled(job_id):
@@ -777,4 +806,3 @@ if __name__ == "__main__":
         run_for_user(run_uid, start, days)
     else:
         main()
-

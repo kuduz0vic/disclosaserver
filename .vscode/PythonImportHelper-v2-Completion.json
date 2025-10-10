@@ -167,14 +167,6 @@
         "documentation": {}
     },
     {
-        "label": "TimeoutError",
-        "importPath": "playwright.sync_api",
-        "description": "playwright.sync_api",
-        "isExtraImport": true,
-        "detail": "playwright.sync_api",
-        "documentation": {}
-    },
-    {
         "label": "supabase_headers",
         "kind": 2,
         "importPath": "scrape_worker",
@@ -319,11 +311,29 @@
         "documentation": {}
     },
     {
+        "label": "collect_row_prices",
+        "kind": 2,
+        "importPath": "scrape_worker",
+        "description": "scrape_worker",
+        "peekOfCode": "def collect_row_prices(row) -> List[float]:\n    prices: List[float] = []\n    for psel in PRICE_SELECTORS:\n        for el in row.query_selector_all(psel):\n            pv = clean_price(el.inner_text())\n            if pv is not None:\n                prices.append(pv)\n    return prices\ndef occupancy_match_for_element(el) -> Optional[int]:\n    try:",
+        "detail": "scrape_worker",
+        "documentation": {}
+    },
+    {
+        "label": "occupancy_match_for_element",
+        "kind": 2,
+        "importPath": "scrape_worker",
+        "description": "scrape_worker",
+        "peekOfCode": "def occupancy_match_for_element(el) -> Optional[int]:\n    try:\n        t = (el.inner_text() or \"\").strip()\n        n = extract_explicit_adults(t)\n        if n: return n\n        parent = el.locator(\"xpath=ancestor::*[self::td or self::div or self::section][1]\")\n        for sel in OCC_NEAR_PRICE_SELECTORS:\n            occ_el = parent.locator(sel).first\n            if occ_el and occ_el.count() > 0:\n                txt = (occ_el.inner_text() or \"\").strip()",
+        "detail": "scrape_worker",
+        "documentation": {}
+    },
+    {
         "label": "collect_room_rows_for_adults",
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def collect_room_rows_for_adults(page, adults: int, *, strict: bool) -> List[Dict[str, float]]:\n    results: List[Dict[str, float]] = []\n    def occupancy_match_for_element(el) -> Optional[int]:\n        try:\n            t = (el.inner_text() or \"\").strip()\n            n = extract_explicit_adults(t)\n            if n: return n\n            parent = el.locator(\"xpath=ancestor::*[self::td or self::div or self::section][1]\")\n            for sel in OCC_NEAR_PRICE_SELECTORS:\n                occ_el = parent.locator(sel).first",
+        "peekOfCode": "def collect_room_rows_for_adults(page, adults: int, *, mode: str) -> List[Dict[str, float]]:\n    \"\"\"\n    mode:\n      - \"strict\": require explicit adults near price (skip otherwise)\n      - \"semi\":   prefer explicit; else infer from row capacity; else any price\n      - \"relaxed\": take min visible price in row as last resort\n    \"\"\"\n    results: List[Dict[str, float]] = []\n    for table_sel in ROOM_TABLE_SELECTORS:\n        rows = page.query_selector_all(table_sel)",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -332,7 +342,7 @@
         "kind": 2,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "def scrape_hotel_for_dates(\n    name: str,\n    slug: str,\n    cc: Optional[str],\n    checkin: str,\n    checkout: str,\n    *,\n    strict: bool,\n    should_cancel: Optional[Callable[[], bool]] = None,\n) -> List[dict]:",
+        "peekOfCode": "def scrape_hotel_for_dates(\n    name: str,\n    slug: str,\n    cc: Optional[str],\n    checkin: str,\n    checkout: str,\n    *,\n    mode: str,  # \"strict\" | \"semi\" | \"relaxed\"\n    should_cancel: Optional[Callable[[], bool]] = None,\n) -> List[dict]:",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -521,7 +531,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "ROOM_TABLE_SELECTORS = [\n    \"tr.js-rt-block-row\",\n    \"table.hprt-table tr\",\n    \"[data-testid='room-row']\",\n]\nPRICE_SELECTORS = [\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n]",
+        "peekOfCode": "ROOM_TABLE_SELECTORS = [\n    \"tr.js-rt-block-row\",\n    \"table.hprt-table tr\",\n    \"[data-testid='room-row']\",\n]\nPRICE_SELECTORS = [\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \".prco-inline-price\",  # extra guard",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -530,7 +540,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "PRICE_SELECTORS = [\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n]\nOCC_NEAR_PRICE_SELECTORS = [\n    \"[data-testid='occupancy']\",\n    \"[data-testid='guests-count']\",\n    \".hprt-occupancy-occupancy-info\",\n    \".bui-u-sr-only\",",
+        "peekOfCode": "PRICE_SELECTORS = [\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \".prco-inline-price\",  # extra guard\n]\nOCC_NEAR_PRICE_SELECTORS = [\n    \"[data-testid='occupancy']\",\n    \"[data-testid='guests-count']\",\n    \".hprt-occupancy-occupancy-info\",",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -539,7 +549,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "OCC_NEAR_PRICE_SELECTORS = [\n    \"[data-testid='occupancy']\",\n    \"[data-testid='guests-count']\",\n    \".hprt-occupancy-occupancy-info\",\n    \".bui-u-sr-only\",\n]\ndef clean_price(text: str) -> Optional[float]:\n    if not text:\n        return None\n    txt = text.replace(\"\\u00A0\", \" \").replace(\",\", \".\")",
+        "peekOfCode": "OCC_NEAR_PRICE_SELECTORS = [\n    \"[data-testid='occupancy']\",\n    \"[data-testid='guests-count']\",\n    \".hprt-occupancy-occupancy-info\",\n    \".bui-u-sr-only\",\n    \"[class*='occupancy']\",\n]\ndef clean_price(text: str) -> Optional[float]:\n    if not text:\n        return None",
         "detail": "scrape_worker",
         "documentation": {}
     },
@@ -548,7 +558,7 @@
         "kind": 5,
         "importPath": "scrape_worker",
         "description": "scrape_worker",
-        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> List[dict]:\n    if is_canceled(job_id):\n        return []\n    try:\n        raw = scrape_hotel_for_dates(\n            hotel[\"name\"],\n            hotel[\"slug\"],\n            hotel.get(\"cc\"),\n            checkin,",
+        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> List[dict]:\n    if is_canceled(job_id):\n        return []\n    try:\n        mode = \"relaxed\" if hotel.get(\"own\") else \"semi\"\n        raw = scrape_hotel_for_dates(\n            hotel[\"name\"],\n            hotel[\"slug\"],\n            hotel.get(\"cc\"),",
         "detail": "scrape_worker",
         "documentation": {}
     }
