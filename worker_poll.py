@@ -18,6 +18,7 @@
 #   - Competitors = rest of user_hotels.
 #   - Honors booking_cc if present, else resolves CC (or DEFAULT_CC).
 #   - Parallelizes (hotel x day) with ThreadPoolExecutor.
+#   - If a given (user, slug, checkin) yields zero rows → emit AUTO_SOLD_OUT once.
 # ------------------------------------------------------------------------------
 
 import os
@@ -48,7 +49,11 @@ MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
 
 JOBS_TABLE = "scrape_jobs"
 RAW_TABLE = "room_prices_raw"
-RAW_ON_CONFLICT = "user_id,slug,checkin,room,occupancy"  # IMPORTANT
+ALERTS_TABLE = "alert_events"
+SOLDOUT_TABLE = "soldout_markers"
+
+# IMPORTANT: include occupancy to avoid mixing 1/2/3/4 adult rates
+RAW_ON_CONFLICT = "user_id,slug,checkin,room,occupancy"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # HTTP helpers
@@ -71,9 +76,11 @@ def http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], pre
     r.raise_for_status()
     return r
 
-def http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False) -> requests.Response:
+def http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False, prefer: Optional[str]=None) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
     headers = supabase_headers(upsert=upsert)
+    if prefer:
+        headers["Prefer"] = prefer
     r = requests.post(url, params=params, json=json_body, headers=headers, timeout=60)
     r.raise_for_status()
     return r
@@ -123,7 +130,7 @@ def is_canceled(job_id: str) -> bool:
         return True
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Upsert room rows (batched)
+# Upserts & Alerts
 # ──────────────────────────────────────────────────────────────────────────────
 def upsert_room_level(user_id: str, room_rows: List[dict]):
     if not room_rows:
@@ -145,29 +152,69 @@ def upsert_room_level(user_id: str, room_rows: List[dict]):
             print("❌ upsert_room_level error:", e, getattr(e.response, "text", "")[:400])
             raise
 
+def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
+    """
+    Try to create (user_id, slug, checkin) in soldout_markers.
+    Returns True iff a NEW marker was inserted (i.e., first time).
+    """
+    try:
+        r = http_post(
+            f"/rest/v1/{SOLDOUT_TABLE}",
+            {"on_conflict": "user_id,slug,checkin"},
+            [{"user_id": user_id, "slug": slug, "checkin": checkin}],
+            upsert=True,
+            # ignore duplicates; return inserted row if created
+            prefer="resolution=ignore-duplicates,return=representation",
+        )
+        rows = r.json() if r.text else []
+        return bool(rows)  # inserted new if we got representation back
+    except HTTPError as e:
+        # If the table doesn’t exist or other schema error, just log & disable
+        print("⚠️ ensure_soldout_marker failed:", e, getattr(e.response, "text", "")[:400])
+        return False
+
+def insert_soldout_alert(user_id: str, slug: str, checkin: str):
+    payload = {
+        "type": "AUTO_SOLD_OUT",
+        "user_id": user_id,
+        "slug": slug,
+        "checkin": checkin,
+        "price": None,
+        "payload": {"source": "worker_poll", "reason": "no rooms parsed for any occupancy"},
+    }
+    try:
+        http_post(f"/rest/v1/{ALERTS_TABLE}", {}, payload, upsert=False)
+        print(f"🔔 ALERT: SOLD OUT emitted for user={user_id} slug={slug} date={checkin}")
+    except HTTPError as e:
+        print("⚠️ insert_soldout_alert failed:", e, getattr(e.response, "text", "")[:400])
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Worker processing
 # ──────────────────────────────────────────────────────────────────────────────
 STEP_LOCK = threading.Lock()
 
-def _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> List[dict]:
+def _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:
+    """
+    Returns dict: { 'slug': ..., 'checkin': ..., 'rows': [...] }
+    """
     if is_canceled(job_id):
-        return []
+        return {"slug": hotel["slug"], "checkin": checkin, "rows": []}
     try:
+        # country code: prefer explicit, else resolve (optional), else default
         cc = hotel.get("cc") or (resolve_cc_for_slug(hotel["slug"]) if RESOLVE_CC_IF_MISSING else None) or DEFAULT_CC
         raw = scrape_hotel_for_dates(
             hotel["name"], hotel["slug"], cc, checkin, checkout, should_cancel=lambda: is_canceled(job_id)
         )
         if is_canceled(job_id):
-            return []
+            return {"slug": hotel["slug"], "checkin": checkin, "rows": []}
         room_level = dedupe_min_per_room_and_occupancy(raw)
         for r in room_level:
             r["user_id"] = user_id
             r["job_id"] = job_id
-        return room_level
+        return {"slug": hotel["slug"], "checkin": checkin, "rows": room_level}
     except Exception as e:
         print("⚠️ task error:", e)
-        return []
+        return {"slug": hotel["slug"], "checkin": checkin, "rows": []}
 
 def process_job(initial_job_row: dict):
     job_id = initial_job_row["id"]
@@ -223,9 +270,6 @@ def process_job(initial_job_row: dict):
 
     try:
         tasks = []
-        results_buffer: List[dict] = []
-        buffer_lock = threading.Lock()
-
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             for h in hotels:
                 if should_cancel(): break
@@ -236,17 +280,31 @@ def process_job(initial_job_row: dict):
                     set_job_fields(job_id, meta={"last_hotel": h["name"], "last_checkin": checkin, "own": bool(h.get("own"))})
                     tasks.append(pool.submit(_scrape_task, job_id, user_id, h, checkin, checkout))
 
+            buffer_lock = threading.Lock()
+            results_buffer: List[dict] = []
+
             for fut in as_completed(tasks):
                 if should_cancel():
                     break
                 try:
-                    rows = fut.result() or []
-                    if rows:
+                    result = fut.result() or {}
+                    rows = result.get("rows") or []
+                    slug = (result.get("slug") or "").lower()
+                    checkin = result.get("checkin")
+
+                    if rows and len(rows) > 0:
+                        # got data → upsert room rows
                         with buffer_lock:
                             results_buffer.extend(rows)
                             if len(results_buffer) >= 300:
                                 upsert_room_level(user_id, results_buffer)
                                 results_buffer.clear()
+                    else:
+                        # zero rows → sold out event (emit once)
+                        if slug and checkin:
+                            if ensure_soldout_marker(user_id, slug, checkin):
+                                insert_soldout_alert(user_id, slug, checkin)
+
                 except Exception as e:
                     print("⚠️ Parallel step error:", e)
                     set_job_fields(job_id, last_error=str(e))
@@ -257,7 +315,6 @@ def process_job(initial_job_row: dict):
 
         if results_buffer:
             upsert_room_level(user_id, results_buffer)
-            results_buffer.clear()
 
         if should_cancel():
             set_job_fields(job_id, status="canceled", finished_at=now_iso_z())

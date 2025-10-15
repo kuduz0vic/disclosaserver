@@ -201,7 +201,6 @@ PRICE_SELECTORS = [
     ".prco-inline-price",
 ]
 
-# phrases we’ve seen Booking display
 OCC_PATTERNS = [
     r"\bfor\s+(\d+)\s+adults?\b",
     r"\bprice\s+for\s+(\d+)\s+adults?\b",
