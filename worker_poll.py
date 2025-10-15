@@ -13,6 +13,9 @@
 #   DEFAULT_CC=si
 #   NO_SANDBOX=1
 #
+#   RAW_ALLOWED_KEYS="user_id,slug,checkin,room,occupancy,price"   # <-- whitelist
+#   RAW_INCLUDE_JOB_ID=0                                           # set 1 to include job_id if your table has it
+#
 # Behavior:
 #   - Always includes OWN hotel (first user_hotels row unless explicit own link).
 #   - Competitors = rest of user_hotels.
@@ -47,6 +50,7 @@ from scraper_core import (
 
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
 
+# ---- DB tables ----
 JOBS_TABLE = "scrape_jobs"
 RAW_TABLE = "room_prices_raw"
 ALERTS_TABLE = "alert_events"
@@ -54,6 +58,14 @@ SOLDOUT_TABLE = "soldout_markers"
 
 # IMPORTANT: include occupancy to avoid mixing 1/2/3/4 adult rates
 RAW_ON_CONFLICT = "user_id,slug,checkin,room,occupancy"
+
+# Whitelist for room_prices_raw (sanitize unknown keys away)
+# Default keeps the bare minimum most installs have. Override if your table has more columns.
+_raw_allowed_default = "user_id,slug,checkin,room,occupancy,price"
+RAW_ALLOWED_KEYS = {k.strip() for k in os.getenv("RAW_ALLOWED_KEYS", _raw_allowed_default).split(",") if k.strip()}
+RAW_INCLUDE_JOB_ID = os.getenv("RAW_INCLUDE_JOB_ID", "0") == "1"
+if RAW_INCLUDE_JOB_ID:
+    RAW_ALLOWED_KEYS.add("job_id")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # HTTP helpers
@@ -132,14 +144,83 @@ def is_canceled(job_id: str) -> bool:
 # ──────────────────────────────────────────────────────────────────────────────
 # Upserts & Alerts
 # ──────────────────────────────────────────────────────────────────────────────
+def _sanitize_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Keep only whitelisted keys. Also coerce types defensively:
+      - checkin → YYYY-MM-DD
+      - occupancy → int
+      - price → float (drop if None/NaN)
+    """
+    out: Dict[str, Any] = {}
+    for k in RAW_ALLOWED_KEYS:
+        if k in row:
+            out[k] = row[k]
+
+    # Coerce checkin
+    if "checkin" in out and isinstance(out["checkin"], str):
+        # trust ISO YYYY-MM-DD from upstream; if contains time, trim
+        out["checkin"] = out["checkin"][:10]
+
+    # Coerce occupancy
+    if "occupancy" in out:
+        try:
+            out["occupancy"] = int(out["occupancy"])
+        except Exception:
+            out["occupancy"] = None
+
+    # Coerce price
+    if "price" in out:
+        try:
+            out["price"] = float(out["price"])
+        except Exception:
+            out["price"] = None
+
+    # Drop invalids
+    if out.get("price") is None:
+        out.pop("price", None)
+
+    # Required minimal keys should be present
+    # (user_id, slug, checkin, room, occupancy); if any missing, we skip later
+    return out
+
 def upsert_room_level(user_id: str, room_rows: List[dict]):
     if not room_rows:
         return
+
+    # Build sanitized batch
+    clean_rows: List[Dict[str, Any]] = []
     for r in room_rows:
-        r["user_id"] = user_id
+        # assemble a row with the fields we expect
+        base = {
+            "user_id": user_id,
+            "slug": (r.get("slug") or "").lower(),
+            "checkin": r.get("checkin"),
+            "room": r.get("room"),
+            "occupancy": r.get("occupancy"),
+            "price": r.get("price"),
+        }
+        if RAW_INCLUDE_JOB_ID and "job_id" in r:
+            base["job_id"] = r["job_id"]
+
+        s = _sanitize_row(base)
+
+        # ensure all conflict target fields exist
+        if not all(s.get(k) for k in ("user_id", "slug", "checkin", "room")):
+            continue
+        try:
+            if int(s.get("occupancy") or 0) <= 0:
+                continue
+        except Exception:
+            continue
+
+        clean_rows.append(s)
+
+    if not clean_rows:
+        return
+
     # batch in chunks so we don’t hit payload limits
-    for i in range(0, len(room_rows), 400):
-        batch = room_rows[i:i+400]
+    for i in range(0, len(clean_rows), 400):
+        batch = clean_rows[i:i+400]
         try:
             http_post(
                 f"/rest/v1/{RAW_TABLE}",
@@ -149,7 +230,10 @@ def upsert_room_level(user_id: str, room_rows: List[dict]):
             )
             print(f"✅ Upserted {len(batch)} rows.")
         except HTTPError as e:
+            # Log one example row to help diagnose schema mismatches
+            sample = batch[0]
             print("❌ upsert_room_level error:", e, getattr(e.response, "text", "")[:400])
+            print("   Sample sanitized row:", {k: sample.get(k) for k in RAW_ALLOWED_KEYS})
             raise
 
 def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
@@ -163,13 +247,11 @@ def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
             {"on_conflict": "user_id,slug,checkin"},
             [{"user_id": user_id, "slug": slug, "checkin": checkin}],
             upsert=True,
-            # ignore duplicates; return inserted row if created
             prefer="resolution=ignore-duplicates,return=representation",
         )
         rows = r.json() if r.text else []
-        return bool(rows)  # inserted new if we got representation back
+        return bool(rows)  # inserted new if representation returned
     except HTTPError as e:
-        # If the table doesn’t exist or other schema error, just log & disable
         print("⚠️ ensure_soldout_marker failed:", e, getattr(e.response, "text", "")[:400])
         return False
 
@@ -210,7 +292,8 @@ def _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
         room_level = dedupe_min_per_room_and_occupancy(raw)
         for r in room_level:
             r["user_id"] = user_id
-            r["job_id"] = job_id
+            if RAW_INCLUDE_JOB_ID:
+                r["job_id"] = job_id
         return {"slug": hotel["slug"], "checkin": checkin, "rows": room_level}
     except Exception as e:
         print("⚠️ task error:", e)
