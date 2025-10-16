@@ -13,8 +13,8 @@
 #   DEFAULT_CC=si
 #   NO_SANDBOX=1
 #
-#   RAW_ALLOWED_KEYS="user_id,slug,checkin,room,occupancy,price"   # <-- whitelist
-#   RAW_INCLUDE_JOB_ID=0                                           # set 1 to include job_id if your table has it
+#   RAW_ALLOWED_KEYS="user_id,slug,checkin,room,occupancy,price,hotel"  # <-- whitelist (includes hotel)
+#   RAW_INCLUDE_JOB_ID=0                                               # set 1 to include job_id if your table has it
 #
 # Behavior:
 #   - Always includes OWN hotel (first user_hotels row unless explicit own link).
@@ -60,8 +60,8 @@ SOLDOUT_TABLE = "soldout_markers"
 RAW_ON_CONFLICT = "user_id,slug,checkin,room,occupancy"
 
 # Whitelist for room_prices_raw (sanitize unknown keys away)
-# Default keeps the bare minimum most installs have. Override if your table has more columns.
-_raw_allowed_default = "user_id,slug,checkin,room,occupancy,price"
+# Default keeps the most common columns, including required `hotel`.
+_raw_allowed_default = "user_id,slug,checkin,room,occupancy,price,hotel"
 RAW_ALLOWED_KEYS = {k.strip() for k in os.getenv("RAW_ALLOWED_KEYS", _raw_allowed_default).split(",") if k.strip()}
 RAW_INCLUDE_JOB_ID = os.getenv("RAW_INCLUDE_JOB_ID", "0") == "1"
 if RAW_INCLUDE_JOB_ID:
@@ -158,7 +158,6 @@ def _sanitize_row(row: Dict[str, Any]) -> Dict[str, Any]:
 
     # Coerce checkin
     if "checkin" in out and isinstance(out["checkin"], str):
-        # trust ISO YYYY-MM-DD from upstream; if contains time, trim
         out["checkin"] = out["checkin"][:10]
 
     # Coerce occupancy
@@ -175,29 +174,31 @@ def _sanitize_row(row: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             out["price"] = None
 
+    # Normalize slug to lower
+    if "slug" in out and isinstance(out["slug"], str):
+        out["slug"] = out["slug"].lower()
+
     # Drop invalids
     if out.get("price") is None:
         out.pop("price", None)
 
-    # Required minimal keys should be present
-    # (user_id, slug, checkin, room, occupancy); if any missing, we skip later
     return out
 
 def upsert_room_level(user_id: str, room_rows: List[dict]):
     if not room_rows:
         return
 
-    # Build sanitized batch
     clean_rows: List[Dict[str, Any]] = []
     for r in room_rows:
-        # assemble a row with the fields we expect
+        # assemble a row with expected fields; include hotel name for NOT NULL column
         base = {
             "user_id": user_id,
-            "slug": (r.get("slug") or "").lower(),
+            "slug": (r.get("slug") or ""),
             "checkin": r.get("checkin"),
             "room": r.get("room"),
             "occupancy": r.get("occupancy"),
             "price": r.get("price"),
+            "hotel": r.get("hotel") or r.get("hotel_name") or r.get("hotelTitle"),  # ensure not null if your schema requires it
         }
         if RAW_INCLUDE_JOB_ID and "job_id" in r:
             base["job_id"] = r["job_id"]
@@ -205,13 +206,17 @@ def upsert_room_level(user_id: str, room_rows: List[dict]):
         s = _sanitize_row(base)
 
         # ensure all conflict target fields exist
-        if not all(s.get(k) for k in ("user_id", "slug", "checkin", "room")):
+        required = ("user_id", "slug", "checkin", "room", "occupancy")
+        if not all(s.get(k) for k in required):
             continue
-        try:
-            if int(s.get("occupancy") or 0) <= 0:
+
+        # if your table has NOT NULL "hotel", enforce presence
+        if "hotel" in RAW_ALLOWED_KEYS and not s.get("hotel"):
+            # we can still try to take it from original row
+            s["hotel"] = (r.get("hotel") or r.get("hotel_name") or "").strip()
+            if not s["hotel"]:
+                # final guard: skip if would violate NOT NULL
                 continue
-        except Exception:
-            continue
 
         clean_rows.append(s)
 
@@ -230,7 +235,6 @@ def upsert_room_level(user_id: str, room_rows: List[dict]):
             )
             print(f"✅ Upserted {len(batch)} rows.")
         except HTTPError as e:
-            # Log one example row to help diagnose schema mismatches
             sample = batch[0]
             print("❌ upsert_room_level error:", e, getattr(e.response, "text", "")[:400])
             print("   Sample sanitized row:", {k: sample.get(k) for k in RAW_ALLOWED_KEYS})
@@ -250,7 +254,7 @@ def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
             prefer="resolution=ignore-duplicates,return=representation",
         )
         rows = r.json() if r.text else []
-        return bool(rows)  # inserted new if representation returned
+        return bool(rows)
     except HTTPError as e:
         print("⚠️ ensure_soldout_marker failed:", e, getattr(e.response, "text", "")[:400])
         return False
@@ -291,6 +295,8 @@ def _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
             return {"slug": hotel["slug"], "checkin": checkin, "rows": []}
         room_level = dedupe_min_per_room_and_occupancy(raw)
         for r in room_level:
+            # ensure hotel name is present for NOT NULL column
+            r["hotel"] = r.get("hotel") or hotel["name"]
             r["user_id"] = user_id
             if RAW_INCLUDE_JOB_ID:
                 r["job_id"] = job_id
@@ -376,14 +382,12 @@ def process_job(initial_job_row: dict):
                     checkin = result.get("checkin")
 
                     if rows and len(rows) > 0:
-                        # got data → upsert room rows
                         with buffer_lock:
                             results_buffer.extend(rows)
                             if len(results_buffer) >= 300:
                                 upsert_room_level(user_id, results_buffer)
                                 results_buffer.clear()
                     else:
-                        # zero rows → sold out event (emit once)
                         if slug and checkin:
                             if ensure_soldout_marker(user_id, slug, checkin):
                                 insert_soldout_alert(user_id, slug, checkin)
