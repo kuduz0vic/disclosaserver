@@ -551,7 +551,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    headers = supabase_headers()\n    if prefer_return:\n        headers[\"Prefer\"] = \"return=representation\"\n    r = requests.patch(url, params=params, json=json_body, headers=headers, timeout=30)\n    r.raise_for_status()\n    return r\ndef http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False, prefer: Optional[str]=None) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"",
+        "peekOfCode": "def http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    headers = supabase_headers()\n    if prefer_return:\n        headers[\"Prefer\"] = \"return=representation\"\n    r = requests.patch(url, params=params, json=json_body, headers=headers, timeout=30)\n    r.raise_for_status()\n    return r\ndef http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False, prefer: Optional[str] = None) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -560,7 +560,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False, prefer: Optional[str]=None) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    headers = supabase_headers(upsert=upsert)\n    if prefer:\n        headers[\"Prefer\"] = prefer\n    r = requests.post(url, params=params, json=json_body, headers=headers, timeout=60)\n    r.raise_for_status()\n    return r\ndef http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"",
+        "peekOfCode": "def http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False, prefer: Optional[str] = None) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    headers = supabase_headers(upsert=upsert)\n    if prefer:\n        headers[\"Prefer\"] = prefer\n    r = requests.post(url, params=params, json=json_body, headers=headers, timeout=60)\n    r.raise_for_status()\n    return r\ndef http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -569,25 +569,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    r = requests.delete(url, params=params, headers=supabase_headers(json_pref=False), timeout=30)\n    r.raise_for_status()\n    return r\n# ──────────────────────────────────────────────────────────────────────────────\n# Archive + replace helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef rpc_archive_day_rows(user_id: str, slug: str, checkin: str):\n    \"\"\"Archive current (user_id, slug, checkin) rows into room_prices_history.\"\"\"",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "rpc_archive_day_rows",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def rpc_archive_day_rows(user_id: str, slug: str, checkin: str):\n    \"\"\"Archive current (user_id, slug, checkin) rows into room_prices_history.\"\"\"\n    try:\n        r = http_post(\"/rest/v1/rpc/fn_archive_day_rows\", {}, {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin})\n        moved = 0\n        try:\n            moved = int(r.json() or 0)\n        except Exception:\n            pass\n        print(f\"📦 Archived {moved} rows for {slug} {checkin}\")",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "delete_day_rows",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def delete_day_rows(user_id: str, slug: str, checkin: str):\n    \"\"\"REPLACE-BY-DAY: hard delete previous rows so the new snapshot is clean.\"\"\"\n    try:\n        http_delete(f\"/rest/v1/{RAW_TABLE}\", {\"user_id\": f\"eq.{user_id}\", \"slug\": f\"eq.{slug}\", \"checkin\": f\"eq.{checkin}\"})\n        print(f\"🧹 Cleared previous rows for {slug} {checkin}\")\n    except HTTPError as e:\n        print(\"⚠️ delete_day_rows failed:\", e, getattr(e.response, \"text\", \"\")[:200])\n# ──────────────────────────────────────────────────────────────────────────────\n# Jobs\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    r = requests.delete(url, params=params, headers=supabase_headers(json_pref=False), timeout=30)\n    r.raise_for_status()\n    return r\n# ────────────────────────────────────────────────────────────────────────────\n# Jobs\n# ────────────────────────────────────────────────────────────────────────────\ndef fetch_next_pending_job() -> Optional[dict]:\n    r = http_get(",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -596,7 +578,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def fetch_next_pending_job() -> Optional[dict]:\n    r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {\"select\": \"*\", \"status\": \"eq.pending\", \"order\": \"created_at.asc\", \"limit\": 1})\n    rows = r.json()\n    return rows[0] if rows else None\ndef claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"}, {\"status\": \"running\", \"started_at\": now_iso_z()}, prefer_return=True)\n        rows = r.json() if r.text else []\n        return rows[0] if rows else None\n    except HTTPError as e:",
+        "peekOfCode": "def fetch_next_pending_job() -> Optional[dict]:\n    r = http_get(\n        f\"/rest/v1/{JOBS_TABLE}\",\n        {\"select\": \"*\", \"status\": \"eq.pending\", \"order\": \"created_at.asc\", \"limit\": 1},\n    )\n    rows = r.json()\n    return rows[0] if rows else None\ndef claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -605,7 +587,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"}, {\"status\": \"running\", \"started_at\": now_iso_z()}, prefer_return=True)\n        rows = r.json() if r.text else []\n        return rows[0] if rows else None\n    except HTTPError as e:\n        print(\"❌ claim_job error:\", e, getattr(e.response, \"text\", \"\")[:400])\n        return None\ndef set_job_fields(job_id: str, **patch):\n    try:",
+        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n            {\"status\": \"running\", \"started_at\": now_iso_z()},\n            prefer_return=True,\n        )\n        rows = r.json() if r.text else []\n        return rows[0] if rows else None",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -628,20 +610,20 @@
         "documentation": {}
     },
     {
-        "label": "upsert_room_level",
+        "label": "archive_day_rows",
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def upsert_room_level(user_id: str, room_rows: List[dict]):\n    if not room_rows:\n        return\n    clean_rows: List[Dict[str, Any]] = []\n    for r in room_rows:\n        base = {\n            \"user_id\": user_id,\n            \"slug\": (r.get(\"slug\") or \"\"),\n            \"checkin\": r.get(\"checkin\"),\n            \"room\": r.get(\"room\"),",
+        "peekOfCode": "def archive_day_rows(user_id: str, slug: str, checkin: str) -> int:\n    \"\"\"Calls SQL fn fn_archive_day_rows(user_id, slug, checkin). Returns moved row count.\"\"\"\n    try:\n        r = http_post(\n            \"/rest/v1/rpc/fn_archive_day_rows\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n        )\n        # Supabase RPC returns either a scalar or a JSON with 'count'\n        try:",
         "detail": "worker_poll",
         "documentation": {}
     },
     {
-        "label": "ensure_soldout_marker",
+        "label": "delete_day_rows",
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:\n    try:\n        r = http_post(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"on_conflict\": \"user_id,slug,checkin\"},\n            [{\"user_id\": user_id, \"slug\": slug, \"checkin\": checkin}],\n            upsert=True,\n            prefer=\"resolution=ignore-duplicates,return=representation\",\n        )\n        rows = r.json() if r.text else []",
+        "peekOfCode": "def delete_day_rows(user_id: str, slug: str, checkin: str):\n    \"\"\"Delete current rows for (user, slug, checkin) from room_prices_raw.\"\"\"\n    try:\n        http_delete(\n            f\"/rest/v1/{RAW_TABLE}\",\n            {\"user_id\": f\"eq.{user_id}\", \"slug\": f\"eq.{slug}\", \"checkin\": f\"eq.{checkin}\"},\n        )\n    except HTTPError as e:\n        txt = getattr(e.response, \"text\", \"\")[:200]\n        print(\"⚠️ delete_day_rows failed:\", e, txt)",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -650,7 +632,16 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(f\"/rest/v1/{SOLDOUT_TABLE}\", {\"user_id\": f\"eq.{user_id}\", \"slug\": f\"eq.{slug}\", \"checkin\": f\"eq.{checkin}\"})\n    except HTTPError as e:\n        print(\"⚠️ clear_soldout_marker failed:\", e, getattr(e.response, \"text\", \"\")[:200])\n    except Exception as e:\n        print(\"⚠️ clear_soldout_marker error:\", e)\ndef insert_soldout_alert(user_id: str, slug: str, checkin: str):\n    payload = {\n        \"type\": \"AUTO_SOLD_OUT\",",
+        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"user_id\": f\"eq.{user_id}\", \"slug\": f\"eq.{slug}\", \"checkin\": f\"eq.{checkin}\"},\n        )\n    except HTTPError:\n        pass\ndef ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:\n    \"\"\"Returns True iff a NEW marker was inserted (i.e., first consecutive miss).\"\"\"",
+        "detail": "worker_poll",
+        "documentation": {}
+    },
+    {
+        "label": "ensure_soldout_marker",
+        "kind": 2,
+        "importPath": "worker_poll",
+        "description": "worker_poll",
+        "peekOfCode": "def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:\n    \"\"\"Returns True iff a NEW marker was inserted (i.e., first consecutive miss).\"\"\"\n    try:\n        r = http_post(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"on_conflict\": \"user_id,slug,checkin\"},\n            [{\"user_id\": user_id, \"slug\": slug, \"checkin\": checkin}],\n            upsert=True,\n            prefer=\"resolution=ignore-duplicates,return=representation\",\n        )",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -664,11 +655,20 @@
         "documentation": {}
     },
     {
+        "label": "insert_room_level",
+        "kind": 2,
+        "importPath": "worker_poll",
+        "description": "worker_poll",
+        "peekOfCode": "def insert_room_level(user_id: str, rows: List[dict]):\n    \"\"\"Insert rows (no upsert) after we've deleted the old snapshot.\"\"\"\n    if not rows:\n        return\n    clean_rows: List[Dict[str, Any]] = []\n    for r in rows:\n        base = {\n            \"user_id\": user_id,\n            \"slug\": (r.get(\"slug\") or \"\"),\n            \"checkin\": r.get(\"checkin\"),",
+        "detail": "worker_poll",
+        "documentation": {}
+    },
+    {
         "label": "process_job",
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def process_job(initial_job_row: dict):\n    job_id = initial_job_row[\"id\"]\n    claimed = claim_job(job_id)\n    if not claimed:\n        print(f\"↩️  Job {job_id} no longer pending; taken by another worker.\")\n        return\n    job = claimed\n    user_id = job[\"user_id\"]\n    range_days = int(job.get(\"range_days\") or 0) or 1\n    start_date = dt.date.today()",
+        "peekOfCode": "def process_job(initial_job_row: dict):\n    job_id = initial_job_row[\"id\"]\n    claimed = claim_job(job_id)\n    if not claimed:\n        print(f\"↩️  Job {job_id} is no longer pending; another worker took it. Skipping.\")\n        return\n    job = claimed\n    user_id = job[\"user_id\"]\n    range_days = int(job.get(\"range_days\") or 0) or 1\n    start_date = dt.date.today()",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -686,7 +686,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "MAX_WORKERS = int(os.getenv(\"MAX_WORKERS\", \"4\"))\n# ---- DB tables ----\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nALERTS_TABLE = \"alert_events\"\nSOLDOUT_TABLE = \"soldout_markers\"\n# IMPORTANT: include occupancy to avoid mixing 1/2/3/4 adult rates\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw (sanitize unknown keys away)\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"",
+        "peekOfCode": "MAX_WORKERS = int(os.getenv(\"MAX_WORKERS\", \"4\"))\n# ---- DB tables ----\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nALERTS_TABLE = \"alert_events\"\nSOLDOUT_TABLE = \"soldout_markers\"\n# IMPORTANT: include occupancy to avoid mixing rates\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -695,7 +695,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nALERTS_TABLE = \"alert_events\"\nSOLDOUT_TABLE = \"soldout_markers\"\n# IMPORTANT: include occupancy to avoid mixing 1/2/3/4 adult rates\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw (sanitize unknown keys away)\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"",
+        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nALERTS_TABLE = \"alert_events\"\nSOLDOUT_TABLE = \"soldout_markers\"\n# IMPORTANT: include occupancy to avoid mixing rates\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -704,7 +704,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\nALERTS_TABLE = \"alert_events\"\nSOLDOUT_TABLE = \"soldout_markers\"\n# IMPORTANT: include occupancy to avoid mixing 1/2/3/4 adult rates\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw (sanitize unknown keys away)\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:",
+        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\nALERTS_TABLE = \"alert_events\"\nSOLDOUT_TABLE = \"soldout_markers\"\n# IMPORTANT: include occupancy to avoid mixing rates\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -713,7 +713,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "ALERTS_TABLE = \"alert_events\"\nSOLDOUT_TABLE = \"soldout_markers\"\n# IMPORTANT: include occupancy to avoid mixing 1/2/3/4 adult rates\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw (sanitize unknown keys away)\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")",
+        "peekOfCode": "ALERTS_TABLE = \"alert_events\"\nSOLDOUT_TABLE = \"soldout_markers\"\n# IMPORTANT: include occupancy to avoid mixing rates\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -722,7 +722,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "SOLDOUT_TABLE = \"soldout_markers\"\n# IMPORTANT: include occupancy to avoid mixing 1/2/3/4 adult rates\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw (sanitize unknown keys away)\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "SOLDOUT_TABLE = \"soldout_markers\"\n# IMPORTANT: include occupancy to avoid mixing rates\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")\n# ────────────────────────────────────────────────────────────────────────────",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -731,7 +731,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw (sanitize unknown keys away)\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")\n# ──────────────────────────────────────────────────────────────────────────────\n# HTTP helpers\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# Whitelist for room_prices_raw\n_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")\n# ────────────────────────────────────────────────────────────────────────────\n# HTTP helpers\n# ────────────────────────────────────────────────────────────────────────────",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -740,7 +740,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")\n# ──────────────────────────────────────────────────────────────────────────────\n# HTTP helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef now_iso_z() -> str:\n    return dt.datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(\"+00:00\", \"Z\")",
+        "peekOfCode": "_raw_allowed_default = \"user_id,slug,checkin,room,occupancy,price,hotel\"\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")\n# ────────────────────────────────────────────────────────────────────────────\n# HTTP helpers\n# ────────────────────────────────────────────────────────────────────────────\ndef now_iso_z() -> str:\n    return dt.datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(\"+00:00\", \"Z\")",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -749,7 +749,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")\n# ──────────────────────────────────────────────────────────────────────────────\n# HTTP helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef now_iso_z() -> str:\n    return dt.datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(\"+00:00\", \"Z\")\ndef http_get(path: str, params: Dict[str, Any]) -> requests.Response:",
+        "peekOfCode": "RAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")\n# ────────────────────────────────────────────────────────────────────────────\n# HTTP helpers\n# ────────────────────────────────────────────────────────────────────────────\ndef now_iso_z() -> str:\n    return dt.datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(\"+00:00\", \"Z\")\ndef http_get(path: str, params: Dict[str, Any]) -> requests.Response:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -758,7 +758,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")\n# ──────────────────────────────────────────────────────────────────────────────\n# HTTP helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef now_iso_z() -> str:\n    return dt.datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(\"+00:00\", \"Z\")\ndef http_get(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"",
+        "peekOfCode": "RAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\nif RAW_INCLUDE_JOB_ID:\n    RAW_ALLOWED_KEYS.add(\"job_id\")\n# ────────────────────────────────────────────────────────────────────────────\n# HTTP helpers\n# ────────────────────────────────────────────────────────────────────────────\ndef now_iso_z() -> str:\n    return dt.datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(\"+00:00\", \"Z\")\ndef http_get(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -767,7 +767,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    if is_canceled(job_id):\n        return {\"slug\": hotel[\"slug\"], \"checkin\": checkin, \"rows\": []}\n    try:\n        cc = hotel.get(\"cc\") or (resolve_cc_for_slug(hotel[\"slug\"]) if RESOLVE_CC_IF_MISSING else None) or DEFAULT_CC\n        raw = scrape_hotel_for_dates(hotel[\"name\"], hotel[\"slug\"], cc, checkin, checkout, should_cancel=lambda: is_canceled(job_id))\n        if is_canceled(job_id):\n            return {\"slug\": hotel[\"slug\"], \"checkin\": checkin, \"rows\": []}\n        room_level = dedupe_min_per_room_and_occupancy(raw)",
+        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_task(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    if is_canceled(job_id):\n        return {\"slug\": hotel[\"slug\"], \"checkin\": checkin, \"rows\": []}\n    try:\n        cc = hotel.get(\"cc\") or (resolve_cc_for_slug(hotel[\"slug\"]) if RESOLVE_CC_IF_MISSING else None) or DEFAULT_CC\n        raw = scrape_hotel_for_dates(\n            hotel[\"name\"], hotel[\"slug\"], cc, checkin, checkout, should_cancel=lambda: is_canceled(job_id)\n        )\n        if is_canceled(job_id):",
         "detail": "worker_poll",
         "documentation": {}
     }
