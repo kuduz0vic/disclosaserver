@@ -340,6 +340,15 @@
         "documentation": {}
     },
     {
+        "label": "row_level_occupancy_hint",
+        "kind": 2,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "def row_level_occupancy_hint(row) -> Optional[int]:\n    \"\"\"Try to read a 'max persons' hint at row scope (e.g., Slovene/English).\"\"\"\n    try:\n        txt = row.inner_text() or \"\"\n        return find_adults_in_text(txt)\n    except Exception:\n        return None\ndef get_occupancy_from_name(name: str) -> int:\n    n = (name or \"\").lower()\n    if any(x in n for x in [\"triposteljna\", \"troposteljna\", \"triple\"]):",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
         "label": "get_occupancy_from_name",
         "kind": 2,
         "importPath": "scraper_core",
@@ -389,7 +398,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:\n    \"\"\"\n    Collect ONLY prices that correspond to requested 'adults' by inspecting nearby text\n    ('Price for 3 adults'). Fallback to room-name heuristic if no explicit context found.\n    \"\"\"\n    results: List[Dict[str, Any]] = []\n    for table_sel in ROOM_TABLE_SELECTORS:\n        rows = page.query_selector_all(table_sel)\n        for row in rows:\n            try:",
+        "peekOfCode": "def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:\n    \"\"\"\n    Collect ONLY prices that correspond to requested 'adults' by inspecting nearby text,\n    else fallback to row-level occupancy hint, else room-name heuristic.\n    \"\"\"\n    results: List[Dict[str, Any]] = []\n    for table_sel in ROOM_TABLE_SELECTORS:\n        rows = page.query_selector_all(table_sel)\n        for row in rows:\n            try:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -407,7 +416,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:\n    \"\"\"\n    Keep the minimum price per (slug, checkin, room, occupancy).\n    Critical to prevent mixing 1/2/3/4 adult rates for the same room.\n    \"\"\"\n    best: Dict[tuple, dict] = {}\n    for r in rows:\n        slug_lower = (r[\"slug\"] or \"\").lower()\n        key = (slug_lower, r[\"checkin\"], r[\"room\"], int(r[\"occupancy\"]))\n        price = r[\"price\"]",
+        "peekOfCode": "def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:\n    \"\"\"\n    Keep the minimum price per (slug, checkin, room, occupancy).\n    Prevents mixing 1/2/3/4 adult rates for the same room and keeps the cheapest variant.\n    \"\"\"\n    best: Dict[tuple, dict] = {}\n    for r in rows:\n        slug_lower = (r[\"slug\"] or \"\").lower()\n        key = (slug_lower, r[\"checkin\"], r[\"room\"], int(r[\"occupancy\"]))\n        price = r[\"price\"]",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -497,7 +506,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\",\"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\",\"a:has-text('Show all')\",\n    \"a:has-text('Show more')\",\"a:has-text('See all rooms')\",\n    \"button:has-text('Prikaži več')\",\"button:has-text('Prikaži vse')\",\n    \"a:has-text('Prikaži več')\",\"a:has-text('Prikaži vse')\",\n]\nROOM_TABLE_SELECTORS = [\n    \"tr.js-rt-block-row\",\n    \"table.hprt-table tr\",",
+        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\",\"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\",\"a:has-text('Show all')\",\n    \"a:has-text('Show more')\",\"a:has-text('See all rooms')\",\n    # Slovene\n    \"button:has-text('Prikaži več')\",\"button:has-text('Prikaži vse')\",\n    \"a:has-text('Prikaži več')\",\"a:has-text('Prikaži vse')\",\n]\nROOM_TABLE_SELECTORS = [\n    \"tr.js-rt-block-row\",",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -515,7 +524,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "PRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-inline-price\",\n]\nOCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\b(\\d+)\\s+adults?\\b\",",
+        "peekOfCode": "PRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-inline-price\",\n]\n# Include English and Slovene phrases\nOCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -524,7 +533,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "OCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\b(\\d+)\\s+adults?\\b\",\n    r\"\\bfor\\s+(\\d+)\\s+people\\b\",\n    r\"\\b(\\d+)\\s+guests?\\b\",\n    r\"\\bsleeps\\s+(\\d+)\\b\",\n    r\"\\bza\\s+(\\d+)\\s*oseb[ioa]?\\b\",\n    r\"\\b(\\d+)\\s*oseb[ioa]?\\b\",\n]",
+        "peekOfCode": "OCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\b(\\d+)\\s+adults?\\b\",\n    r\"\\bfor\\s+(\\d+)\\s+people\\b\",\n    r\"\\b(\\d+)\\s+guests?\\b\",\n    r\"\\bsleeps\\s+(\\d+)\\b\",\n    # Slovene\n    r\"\\bza\\s+(\\d+)\\s*oseb[ioa]?\\b\",\n    r\"\\b(\\d+)\\s*oseb[ioa]?\\b\",",
         "detail": "scraper_core",
         "documentation": {}
     },
