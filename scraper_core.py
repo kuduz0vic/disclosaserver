@@ -18,7 +18,7 @@
 #
 # Tables relied on:
 #   - user_hotels (join hotels(name,url,hotel_profiles(booking_slug,booking_cc)))
-#   - room_prices_raw (should have UNIQUE (user_id, slug, checkin, room, occupancy))
+#   - room_prices_raw (UNIQUE (user_id, slug, checkin, room, occupancy))
 # ------------------------------------------------------------------------------
 
 import os
@@ -29,6 +29,7 @@ from urllib.parse import urlencode, urlparse
 import requests
 from requests import HTTPError
 from playwright.sync_api import sync_playwright, TimeoutError
+from functools import lru_cache
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Env
@@ -155,8 +156,6 @@ def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dic
 # ──────────────────────────────────────────────────────────────────────────────
 # Country resolver (when CC missing)
 # ──────────────────────────────────────────────────────────────────────────────
-from functools import lru_cache
-
 @lru_cache(maxsize=512)
 def resolve_cc_for_slug(slug: str, timeout: float = 4.0) -> Optional[str]:
     if not slug:
@@ -186,6 +185,7 @@ EXPAND_SELECTORS = [
     "button:has-text('Show all')","button:has-text('Show more')",
     "button:has-text('See all rooms')","a:has-text('Show all')",
     "a:has-text('Show more')","a:has-text('See all rooms')",
+    # Slovene
     "button:has-text('Prikaži več')","button:has-text('Prikaži vse')",
     "a:has-text('Prikaži več')","a:has-text('Prikaži vse')",
 ]
@@ -201,6 +201,7 @@ PRICE_SELECTORS = [
     ".prco-inline-price",
 ]
 
+# Include English and Slovene phrases
 OCC_PATTERNS = [
     r"\bfor\s+(\d+)\s+adults?\b",
     r"\bprice\s+for\s+(\d+)\s+adults?\b",
@@ -208,8 +209,11 @@ OCC_PATTERNS = [
     r"\bfor\s+(\d+)\s+people\b",
     r"\b(\d+)\s+guests?\b",
     r"\bsleeps\s+(\d+)\b",
+    # Slovene
     r"\bza\s+(\d+)\s*oseb[ioa]?\b",
     r"\b(\d+)\s*oseb[ioa]?\b",
+    r"\bnajvečje\s+število\s+oseb:\s*(\d+)\b",
+    r"\bsamo\s+za\s+(\d+)\s+gost[oa]?\b",
 ]
 
 def clean_price(text: str) -> Optional[float]:
@@ -233,6 +237,14 @@ def find_adults_in_text(text: str) -> Optional[int]:
             except Exception:
                 pass
     return None
+
+def row_level_occupancy_hint(row) -> Optional[int]:
+    """Try to read a 'max persons' hint at row scope (e.g., Slovene/English)."""
+    try:
+        txt = row.inner_text() or ""
+        return find_adults_in_text(txt)
+    except Exception:
+        return None
 
 def get_occupancy_from_name(name: str) -> int:
     n = (name or "").lower()
@@ -324,8 +336,8 @@ def extract_price_with_context(price_el) -> (Optional[float], Optional[int]):
 
 def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
     """
-    Collect ONLY prices that correspond to requested 'adults' by inspecting nearby text
-    ('Price for 3 adults'). Fallback to room-name heuristic if no explicit context found.
+    Collect ONLY prices that correspond to requested 'adults' by inspecting nearby text,
+    else fallback to row-level occupancy hint, else room-name heuristic.
     """
     results: List[Dict[str, Any]] = []
     for table_sel in ROOM_TABLE_SELECTORS:
@@ -341,6 +353,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                 if not room_name or not is_valid_room(room_name):
                     continue
 
+                row_occ = row_level_occupancy_hint(row)
                 accepted_any = False
 
                 for td in row.query_selector_all("td,div,section"):
@@ -351,19 +364,25 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                         price, occ_ctx = extract_price_with_context(pel)
                         if price is None:
                             continue
+
                         if occ_ctx is not None:
-                            if occ_ctx == adults:
-                                results.append({
-                                    "room": re.sub(r"\s+", " ", room_name),
-                                    "price": price,
-                                    "occupancy": adults,
-                                })
-                                accepted_any = True
+                            occ_final = occ_ctx
+                        elif row_occ is not None:
+                            occ_final = row_occ
+                        else:
+                            occ_final = get_occupancy_from_name(room_name)
+
+                        if occ_final == adults:
+                            results.append({
+                                "room": re.sub(r"\s+", " ", room_name),
+                                "price": price,
+                                "occupancy": adults,
+                            })
+                            accepted_any = True
 
                 if not accepted_any:
                     inferred = get_occupancy_from_name(room_name)
                     if inferred == adults:
-                        # pick first visible price in row as fallback
                         first_price = None
                         for td in row.query_selector_all("td,div,section"):
                             for psel in PRICE_SELECTORS:
@@ -397,7 +416,7 @@ def scrape_hotel_for_dates(
     For adults=1..4:
       - Load /hotel/{cc}/{slug}.html with checkin/checkout & group_adults
       - Expand & scroll to reveal prices
-      - Collect prices for each requested adult count (strict + safe fallback)
+      - Collect prices (strict + safe fallbacks)
     Return rows: [{hotel, slug, checkin, room, occupancy, price}]
     """
     def cancelled() -> bool:
@@ -443,8 +462,6 @@ def scrape_hotel_for_dates(
                     print("⚠️ No room table found.")
                     continue
 
-                if cancelled(): break
-
                 rows = collect_room_rows_for_adults(page, adults)
                 for r in rows:
                     out.append({
@@ -469,7 +486,7 @@ def scrape_hotel_for_dates(
 def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:
     """
     Keep the minimum price per (slug, checkin, room, occupancy).
-    Critical to prevent mixing 1/2/3/4 adult rates for the same room.
+    Prevents mixing 1/2/3/4 adult rates for the same room and keeps the cheapest variant.
     """
     best: Dict[tuple, dict] = {}
     for r in rows:
