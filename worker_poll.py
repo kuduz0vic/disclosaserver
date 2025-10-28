@@ -59,6 +59,7 @@ from scraper_core import (
     dedupe_min_per_room_and_occupancy,
 )
 
+# Pull MAX_WORKERS from env (controls parallel scraping INSIDE one container)
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
 
 # table / view names
@@ -84,9 +85,9 @@ RAW_ALLOWED_KEYS = {
 if not RAW_INCLUDE_JOB_ID and "job_id" in RAW_ALLOWED_KEYS:
     RAW_ALLOWED_KEYS.remove("job_id")
 
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # basic helpers
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
 def now_iso_z() -> str:
     return (
@@ -95,7 +96,6 @@ def now_iso_z() -> str:
         .isoformat()
         .replace("+00:00", "Z")
     )
-
 
 def http_get(path: str, params: Dict[str, Any]) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
@@ -107,7 +107,6 @@ def http_get(path: str, params: Dict[str, Any]) -> requests.Response:
     )
     r.raise_for_status()
     return r
-
 
 def http_patch(
     path: str,
@@ -128,7 +127,6 @@ def http_patch(
     )
     r.raise_for_status()
     return r
-
 
 def http_post(
     path: str,
@@ -152,7 +150,6 @@ def http_post(
     r.raise_for_status()
     return r
 
-
 def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
     r = requests.delete(
@@ -164,10 +161,9 @@ def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:
     r.raise_for_status()
     return r
 
-
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # scrape_jobs helpers
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
 def fetch_next_pending_job() -> Optional[dict]:
     r = http_get(
@@ -181,7 +177,6 @@ def fetch_next_pending_job() -> Optional[dict]:
     )
     rows = r.json()
     return rows[0] if rows else None
-
 
 def claim_job(job_id: str) -> Optional[dict]:
     """atomically flip pending→running"""
@@ -197,7 +192,6 @@ def claim_job(job_id: str) -> Optional[dict]:
     except HTTPError as e:
         print("❌ claim_job error:", e, getattr(e.response, "text", "")[:400])
         return None
-
 
 def set_job_fields(job_id: str, **patch):
     try:
@@ -217,7 +211,6 @@ def set_job_fields(job_id: str, **patch):
             getattr(e.response, "text", "")[:400],
         )
         raise
-
 
 def is_canceled(job_id: str) -> bool:
     """check if job is canceled/failed, so we can bail early"""
@@ -239,10 +232,9 @@ def is_canceled(job_id: str) -> bool:
         )
         return True
 
-
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # archiving + sold-out alert helpers
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
 def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
     """
@@ -276,7 +268,6 @@ def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
             getattr(e.response, "text", "")[:400],
         )
 
-
 def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
     """
     Insert (user_id, slug, checkin) into soldout_markers.
@@ -309,7 +300,6 @@ def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
         )
         return False
 
-
 def clear_soldout_marker(user_id: str, slug: str, checkin: str):
     try:
         http_delete(
@@ -329,7 +319,6 @@ def clear_soldout_marker(user_id: str, slug: str, checkin: str):
         )
     except Exception as e:
         print("⚠️ clear_soldout_marker error:", e)
-
 
 def insert_soldout_alert(user_id: str, slug: str, checkin: str):
     payload = {
@@ -362,10 +351,9 @@ def insert_soldout_alert(user_id: str, slug: str, checkin: str):
             getattr(e.response, "text", "")[:400],
         )
 
-
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # room price upsert
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
 def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
@@ -414,7 +402,6 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     return out
-
 
 def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
     """
@@ -467,10 +454,9 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
             print("   sample row:", batch[0])
             raise
 
-
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # scrape task for a single (hotel, date)
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
 def _scrape_once(
     job_id: str,
@@ -521,10 +507,9 @@ def _scrape_once(
         print("⚠️ scrape task error:", e)
         return {"slug": slug, "checkin": checkin, "rows": []}
 
-
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # main job processing
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
 STEP_LOCK = threading.Lock()
 
@@ -598,6 +583,17 @@ def process_job(first_row: dict):
         print(
             f"🔎 job slug filter: had {before}, now {len(hotels)} (own forced in)"
         )
+
+    # if there are literally no hotels, fail fast
+    if not hotels:
+        print(f"❌ job {job_id} has no hotels to scrape for user {user_id}")
+        set_job_fields(
+            job_id,
+            status="failed",
+            finished_at=now_iso_z(),
+            last_error="no hotels configured",
+        )
+        return
 
     print(
         f"🚀 process_job {job_id} (user {user_id}) "
@@ -786,10 +782,9 @@ def process_job(first_row: dict):
         except Exception:
             pass
 
-
-# ------------------------------------------------------------------------------
-# main loop
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+# main loop (poller)
+# -------------------------------------------------------------------------
 
 def main():
     print("⏳ Worker online. Polling scrape_jobs...")
@@ -797,21 +792,26 @@ def main():
         try:
             job = fetch_next_pending_job()
             if not job:
-                time.sleep(3)
+                # sleep longer between polls to avoid useless CPU wakeups
+                time.sleep(10)
                 continue
+
             print("🎯 picked job", job.get("id"))
             process_job(job)
+
         except HTTPError as http_err:
             print(
                 "worker loop HTTP error:",
                 http_err,
                 getattr(http_err.response, "text", "")[:400],
             )
-            time.sleep(3)
+            # small backoff
+            time.sleep(10)
+
         except Exception as e:
             print("worker loop error:", e)
-            time.sleep(3)
-
+            # small backoff
+            time.sleep(10)
 
 if __name__ == "__main__":
     main()

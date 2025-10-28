@@ -44,8 +44,10 @@ assert SUPABASE_URL and SUPABASE_KEY, "Missing SUPABASE_URL or SUPABASE_SERVICE_
 
 DEFAULT_CC = (os.getenv("DEFAULT_CC", "si") or "si").lower()
 RESOLVE_CC_IF_MISSING = os.getenv("RESOLVE_CC_IF_MISSING", "1") == "1"
-COMMON_CCS = (os.getenv("COMMON_CCS") or
-              "si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr").split(",")
+COMMON_CCS = (
+    os.getenv("COMMON_CCS")
+    or "si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr"
+).split(",")
 
 PAGE_GOTO_TIMEOUT_MS = int(os.getenv("PAGE_GOTO_TIMEOUT_MS", "20000"))
 WAIT_TABLE_TIMEOUT_MS = int(os.getenv("WAIT_TABLE_TIMEOUT_MS", "8000"))
@@ -81,10 +83,20 @@ def _normalize_slug(v: str) -> str:
             parts = [p for p in u.path.split("/") if p]
             if len(parts) >= 3 and parts[0].lower() == "hotel":
                 slug = parts[2]
-                return re.sub(r"\.([a-z]{2}(?:-[a-z]{2})?)?\.html?$", "", slug, flags=re.I)
+                return re.sub(
+                    r"\.([a-z]{2}(?:-[a-z]{2})?)?\.html?$",
+                    "",
+                    slug,
+                    flags=re.I,
+                )
         except Exception:
             pass
-    t = re.sub(r"\.([a-z]{2}(?:-[a-z]{2})?)?\.html?$", "", t, flags=re.I)
+    t = re.sub(
+        r"\.([a-z]{2}(?:-[a-z]{2})?)?\.html?$",
+        "",
+        t,
+        flags=re.I,
+    )
     return t.replace(" ", "")
 
 def _get_user_links(user_id: str) -> List[dict]:
@@ -132,13 +144,23 @@ def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:
             slug = _normalize_slug(l.get("booking_slug") or l.get("url") or "")
             if slug:
                 cc = (l.get("booking_cc") or "").lower() or None
-                return {"hotel_id": l["hotel_id"], "name": l["name"] or "My Hotel", "slug": slug, "cc": cc}
+                return {
+                    "hotel_id": l["hotel_id"],
+                    "name": l["name"] or "My Hotel",
+                    "slug": slug,
+                    "cc": cc,
+                }
     first = links[0]
     slug = _normalize_slug(first.get("booking_slug") or first.get("url") or "")
     if not slug:
         return None
     cc = (first.get("booking_cc") or "").lower() or None
-    return {"hotel_id": first["hotel_id"], "name": first["name"] or "My Hotel", "slug": slug, "cc": cc}
+    return {
+        "hotel_id": first["hotel_id"],
+        "name": first["name"] or "My Hotel",
+        "slug": slug,
+        "cc": cc,
+    }
 
 def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:
     links = _get_user_links(user_id)
@@ -150,7 +172,12 @@ def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dic
         if not slug:
             continue
         cc = (l.get("booking_cc") or "").lower() or None
-        out.append({"hotel_id": l["hotel_id"], "name": l["name"] or "", "slug": slug, "cc": cc})
+        out.append({
+            "hotel_id": l["hotel_id"],
+            "name": l["name"] or "",
+            "slug": slug,
+            "cc": cc,
+        })
     return out
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -441,7 +468,8 @@ def scrape_hotel_for_dates(
         page = context.new_page()
 
         for adults in (1, 2, 3, 4):
-            if cancelled(): break
+            if cancelled():
+                break
             url = build_hotel_url(cc, slug, checkin, checkout, adults, lang="en-gb")
             print(f"🏨 {name} | {checkin}→{checkout} | adults={adults}\n   {url}")
             try:
@@ -450,11 +478,13 @@ def scrape_hotel_for_dates(
                 print("⚠️ Timeout loading hotel page.")
                 continue
 
-            if cancelled(): break
+            if cancelled():
+                break
 
             try:
                 aggressively_expand_and_scroll(page, should_cancel=should_cancel)
-                if cancelled(): break
+                if cancelled():
+                    break
 
                 try:
                     page.wait_for_selector(",".join(ROOM_TABLE_SELECTORS), timeout=WAIT_TABLE_TIMEOUT_MS)
@@ -469,7 +499,7 @@ def scrape_hotel_for_dates(
                         "slug": slug.lower(),
                         "checkin": checkin,
                         "room": r["room"],
-                        "occupancy": r["occupancy"],  # equals adults
+                        "occupancy": r["occupancy"],
                         "price": r["price"],
                     })
 
