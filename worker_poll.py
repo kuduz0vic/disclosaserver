@@ -2,9 +2,10 @@
 # ------------------------------------------------------------------------------
 # Background worker for scraping Booking, persisting prices, and generating
 # alerts. Hardened with:
+# - Robust HTTP client (retries, keep-alive, timeouts)
 # - Playwright retry/cancel handled in scraper_core
 # - Per-step heartbeat + overall job time budget (kills runaways)
-# - Stale job reaper (before each poll cycle)
+# - Stale job reaper (before each poll cycle) with jittered backoff loop
 #
 # ENV (required):
 #   SUPABASE_URL
@@ -20,10 +21,13 @@
 #   STALE_JOB_MINUTES=90
 #   RAW_INCLUDE_JOB_ID=0
 #   RAW_ALLOWED_KEYS="user_id,slug,checkin,room,occupancy,price,hotel,job_id"
+#   HTTP_CONNECT_TIMEOUT=10
+#   HTTP_READ_TIMEOUT=60
 # ------------------------------------------------------------------------------
 
 import os
 import time
+import random
 import datetime as dt
 from datetime import timezone
 from typing import Optional, Dict, Any, List
@@ -32,6 +36,8 @@ import threading
 
 import requests
 from requests import HTTPError
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
 from scraper_core import (
     SUPABASE_URL,
@@ -46,11 +52,17 @@ from scraper_core import (
     dedupe_min_per_room_and_occupancy,
 )
 
+# ------------------------------------------------------------------------------
 # Config knobs
+# ------------------------------------------------------------------------------
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
 MAX_JOB_DURATION_SEC = int(os.getenv("MAX_JOB_DURATION_SEC", "5400"))          # 90 min
 HEARTBEAT_EVERY_STEPS = int(os.getenv("HEARTBEAT_EVERY_STEPS", "8"))
 STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "90"))
+
+CONNECT_TIMEOUT = float(os.getenv("HTTP_CONNECT_TIMEOUT", "10"))
+READ_TIMEOUT    = float(os.getenv("HTTP_READ_TIMEOUT", "60"))
+DEFAULT_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
 
 # Tables / names
 JOBS_TABLE = "scrape_jobs"
@@ -75,10 +87,37 @@ RAW_ALLOWED_KEYS = {
 if not RAW_INCLUDE_JOB_ID and "job_id" in RAW_ALLOWED_KEYS:
     RAW_ALLOWED_KEYS.remove("job_id")
 
-# -------------------------------------------------------------------------
-# HTTP helpers
-# -------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Robust HTTP session (keep-alive + retries)
+# ------------------------------------------------------------------------------
+_HTTP = None
 
+def get_http_session() -> requests.Session:
+    global _HTTP
+    if _HTTP is not None:
+        return _HTTP
+
+    s = requests.Session()
+    retry = Retry(
+        total=6,
+        connect=6,
+        read=6,
+        status=6,
+        backoff_factor=0.8,   # 0.8, 1.6, 3.2, 6.4, ...
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "POST", "PATCH", "DELETE"]),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=40)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    s.headers.update({"Connection": "keep-alive"})
+    _HTTP = s
+    return _HTTP
+
+# ------------------------------------------------------------------------------
+# HTTP helpers
+# ------------------------------------------------------------------------------
 def now_iso_z() -> str:
     return (
         dt.datetime.now(timezone.utc)
@@ -89,38 +128,75 @@ def now_iso_z() -> str:
 
 def http_get(path: str, params: Dict[str, Any]) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
-    r = requests.get(url, params=params, headers=supabase_headers(json_pref=False), timeout=30)
-    r.raise_for_status()
-    return r
+    try:
+        r = get_http_session().get(
+            url,
+            params=params,
+            headers=supabase_headers(json_pref=False),
+            timeout=DEFAULT_TIMEOUT,
+        )
+        r.raise_for_status()
+        return r
+    except requests.RequestException as e:
+        print("❌ http_get failure:", url, "| params:", params, "| err:", repr(e))
+        raise
 
 def http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
     headers = supabase_headers()
     if prefer_return:
         headers["Prefer"] = "return=representation"
-    r = requests.patch(url, params=params, json=json_body, headers=headers, timeout=30)
-    r.raise_for_status()
-    return r
+    try:
+        r = get_http_session().patch(
+            url,
+            params=params,
+            json=json_body,
+            headers=headers,
+            timeout=DEFAULT_TIMEOUT,
+        )
+        r.raise_for_status()
+        return r
+    except requests.RequestException as e:
+        print("❌ http_patch failure:", url, "| params:", params, "| err:", repr(e))
+        raise
 
 def http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False, prefer: Optional[str] = None, timeout_sec: int = 60) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
     headers = supabase_headers(upsert=upsert)
     if prefer:
         headers["Prefer"] = prefer
-    r = requests.post(url, params=params, json=json_body, headers=headers, timeout=timeout_sec)
-    r.raise_for_status()
-    return r
+    try:
+        r = get_http_session().post(
+            url,
+            params=params,
+            json=json_body,
+            headers=headers,
+            timeout=(CONNECT_TIMEOUT, timeout_sec),
+        )
+        r.raise_for_status()
+        return r
+    except requests.RequestException as e:
+        print("❌ http_post failure:", url, "| params:", params, "| err:", repr(e))
+        raise
 
 def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
-    r = requests.delete(url, params=params, headers=supabase_headers(json_pref=False), timeout=30)
-    r.raise_for_status()
-    return r
+    try:
+        r = get_http_session().delete(
+            url,
+            params=params,
+            headers=supabase_headers(json_pref=False),
+            timeout=DEFAULT_TIMEOUT,
+        )
+        r.raise_for_status()
+        return r
+    except requests.RequestException as e:
+        print("❌ http_delete failure:", url, "| params:", params, "| err:", repr(e))
+        raise
 
-# -------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # scrape_jobs helpers
-# -------------------------------------------------------------------------
-
+# ------------------------------------------------------------------------------
 def fetch_next_pending_job() -> Optional[dict]:
     r = http_get(
         f"/rest/v1/{JOBS_TABLE}",
@@ -182,14 +258,13 @@ def reap_stale_jobs():
     except HTTPError as e:
         print("⚠️ stale reaper error:", e, getattr(e.response, "text", "")[:400])
 
-# -------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # archiving + sold-out alert helpers
-# -------------------------------------------------------------------------
-
+# ------------------------------------------------------------------------------
 def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
     try:
         r = http_post(
-            f"/rest/v1/rpc/fn_archive_day_rows", {},  # same RPC name you already use
+            f"/rest/v1/rpc/{HISTORY_FUNC}", {},
             {"p_user_id": user_id, "p_slug": slug, "p_checkin": checkin},
             upsert=False, timeout_sec=30
         )
@@ -201,9 +276,11 @@ def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
 def delete_current_snapshot(user_id: str, slug: str, checkin: str):
     """Hard delete rows for the (slug, checkin) in RAW so UI shows 'no availability'."""
     try:
-        # If you created fn_delete_day_rows, use it; otherwise do a REST delete:
-        # http_delete(f"/rest/v1/room_prices_raw",
-        #   {"user_id": f"eq.{user_id}", "slug": f"eq.{slug}", "checkin": f"eq.{checkin}"})
+        # If you don't have an RPC, uncomment the direct REST delete:
+        # http_delete(
+        #     f"/rest/v1/{RAW_TABLE}",
+        #     {"user_id": f"eq.{user_id}", "slug": f"eq.{slug}", "checkin": f"eq.{checkin}"}
+        # )
         r = http_post(
             f"/rest/v1/rpc/fn_delete_day_rows", {},
             {"p_user_id": user_id, "p_slug": slug, "p_checkin": checkin},
@@ -215,10 +292,9 @@ def delete_current_snapshot(user_id: str, slug: str, checkin: str):
         print("⚠️ delete_current_snapshot failed:", e, getattr(e.response, "text", "")[:400])
 
 def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
-    # … unchanged …
     try:
         r = http_post(
-            f"/rest/v1/soldout_markers",
+            f"/rest/v1/{SOLDOUT_TABLE}",
             {"on_conflict": "user_id,slug,checkin"},
             [{"user_id": user_id, "slug": slug.lower(), "checkin": checkin}],
             upsert=True,
@@ -232,7 +308,10 @@ def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
 
 def clear_soldout_marker(user_id: str, slug: str, checkin: str):
     try:
-        http_delete(f"/rest/v1/{SOLDOUT_TABLE}", {"user_id": f"eq.{user_id}", "slug": f"eq.{slug.lower()}", "checkin": f"eq.{checkin}"})
+        http_delete(
+            f"/rest/v1/{SOLDOUT_TABLE}",
+            {"user_id": f"eq.{user_id}", "slug": f"eq.{slug.lower()}", "checkin": f"eq.{checkin}"}
+        )
     except HTTPError as e:
         print("⚠️ clear_soldout_marker failed:", e, getattr(e.response, "text", "")[:200])
     except Exception as e:
@@ -253,10 +332,9 @@ def insert_soldout_alert(user_id: str, slug: str, checkin: str):
     except HTTPError as e:
         print("⚠️ insert_soldout_alert failed:", e, getattr(e.response, "text", "")[:400])
 
-# -------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # room price upsert
-# -------------------------------------------------------------------------
-
+# ------------------------------------------------------------------------------
 def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     out: Dict[str, Any] = {}
     for k in RAW_ALLOWED_KEYS:
@@ -328,10 +406,9 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
             print("   sample row:", batch[0])
             raise
 
-# -------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # scrape task for a single (hotel, date)
-# -------------------------------------------------------------------------
-
+# ------------------------------------------------------------------------------
 def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:
     slug = (hotel.get("slug") or "").lower()
     if is_canceled(job_id):
@@ -357,10 +434,9 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
         print("⚠️ scrape task error:", e)
         return {"slug": slug, "checkin": checkin, "rows": []}
 
-# -------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # main job processing
-# -------------------------------------------------------------------------
-
+# ------------------------------------------------------------------------------
 STEP_LOCK = threading.Lock()
 
 def process_job(first_row: dict):
@@ -433,13 +509,37 @@ def process_job(first_row: dict):
     try:
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = []
-            # … enqueue work … (unchanged)
 
+            # Enqueue work
+            for h in hotels:
+                if canceled() or over_time_budget():
+                    break
+                for d in range(range_days):
+                    if canceled() or over_time_budget():
+                        break
+
+                    checkin = (start_date + dt.timedelta(days=d)).strftime("%Y-%m-%d")
+                    checkout = (start_date + dt.timedelta(days=d + 1)).strftime("%Y-%m-%d")
+
+                    # progress hint
+                    set_job_fields(
+                        job_id,
+                        meta={"last_hotel": h["name"], "last_checkin": checkin, "own": bool(h.get("own"))},
+                    )
+
+                    futures.append(
+                        pool.submit(
+                            _scrape_once, job_id, user_id, h, checkin, checkout
+                        )
+                    )
+
+            # buffer upserts for performance
             buffer_rows: List[dict] = []
             buffer_lock = threading.Lock()
 
             for fut in as_completed(futures):
-                if canceled(): break
+                if canceled():
+                    break
                 if over_time_budget():
                     set_job_fields(job_id, status="failed", finished_at=now_iso_z(), last_error="time budget exceeded")
                     print(f"⏱️ job {job_id} exceeded time budget; failing")
@@ -460,7 +560,7 @@ def process_job(first_row: dict):
                             buffer_rows.extend(rows)
                             if len(buffer_rows) >= 300:
                                 upsert_room_prices(user_id, job_id, buffer_rows)
-                                # having prices ⇒ clear sold-out
+                                # having prices ⇒ clear sold-out markers for those days
                                 try:
                                     seen_pairs = set()
                                     for rr in buffer_rows:
@@ -471,7 +571,6 @@ def process_job(first_row: dict):
                                 except Exception as e:
                                     print("⚠️ clear_soldout_marker batch err:", e)
                                 buffer_rows.clear()
-
                     else:
                         # **NO PRICES**: archive old, DELETE snapshot, mark sold-out, alert
                         if slug and checkin:
@@ -480,8 +579,7 @@ def process_job(first_row: dict):
                             except Exception:
                                 pass
                             delete_current_snapshot(user_id, slug, checkin)
-                            first_time = ensure_soldout_marker(user_id, slug, checkin)
-                            # If you'd like immediate alert on first hit, do it unconditionally:
+                            ensure_soldout_marker(user_id, slug, checkin)
                             insert_soldout_alert(user_id, slug, checkin)
 
                 except Exception as e:
@@ -495,6 +593,7 @@ def process_job(first_row: dict):
                         if completed_steps % HEARTBEAT_EVERY_STEPS == 0:
                             set_heartbeat(job_id)
 
+        # flush leftovers
         if buffer_rows:
             upsert_room_prices(user_id, job_id, buffer_rows)
             try:
@@ -508,8 +607,10 @@ def process_job(first_row: dict):
                 print("⚠️ final clear_soldout_marker err:", e)
 
         set_heartbeat(job_id)
-        if canceled(): set_job_fields(job_id, status="canceled", finished_at=now_iso_z())
-        else:          set_job_fields(job_id, status="done",     finished_at=now_iso_z())
+        if canceled():
+            set_job_fields(job_id, status="canceled", finished_at=now_iso_z())
+        else:
+            set_job_fields(job_id, status="done", finished_at=now_iso_z())
 
     except HTTPError as http_err:
         print("💥 HTTP error in process_job:", http_err, getattr(http_err.response, "text", "")[:400])
@@ -525,27 +626,47 @@ def process_job(first_row: dict):
         except Exception:
             pass
 
-# -------------------------------------------------------------------------
-# main loop (poller)
-# -------------------------------------------------------------------------
-
+# ------------------------------------------------------------------------------
+# main loop (poller) with jittered backoff + stale reaper
+# ------------------------------------------------------------------------------
 def main():
     print("⏳ Worker online. Polling scrape_jobs...")
+    consecutive_errors = 0
+
     while True:
         try:
+            # cleanup zombies
             reap_stale_jobs()
+
             job = fetch_next_pending_job()
             if not job:
-                time.sleep(10)
+                # idle sleep; small jitter avoids thundering herd
+                sleep_s = 8 + random.uniform(0.0, 4.0)
+                time.sleep(sleep_s)
+                consecutive_errors = 0
                 continue
+
             print("🎯 picked job", job.get("id"))
             process_job(job)
+            consecutive_errors = 0
+
         except HTTPError as http_err:
+            consecutive_errors += 1
             print("worker loop HTTP error:", http_err, getattr(http_err.response, "text", "")[:400])
-            time.sleep(10)
+            backoff = min(60, (2 ** min(consecutive_errors, 5)) + random.uniform(0, 1.5))
+            time.sleep(backoff)
+
+        except requests.RequestException as net_err:
+            consecutive_errors += 1
+            print("worker loop network error:", repr(net_err))
+            backoff = min(60, (2 ** min(consecutive_errors, 5)) + random.uniform(0, 1.5))
+            time.sleep(backoff)
+
         except Exception as e:
+            consecutive_errors += 1
             print("worker loop error:", e)
-            time.sleep(10)
+            backoff = min(60, (2 ** min(consecutive_errors, 5)) + random.uniform(0, 1.5))
+            time.sleep(backoff)
 
 if __name__ == "__main__":
     main()
