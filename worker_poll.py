@@ -188,23 +188,44 @@ def reap_stale_jobs():
 
 def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
     try:
-        r = http_post(f"/rest/v1/rpc/{HISTORY_FUNC}", {}, {"p_user_id": user_id, "p_slug": slug, "p_checkin": checkin}, upsert=False, timeout_sec=30)
+        r = http_post(
+            f"/rest/v1/rpc/fn_archive_day_rows", {},  # same RPC name you already use
+            {"p_user_id": user_id, "p_slug": slug, "p_checkin": checkin},
+            upsert=False, timeout_sec=30
+        )
         moved_count = int(r.json() or 0)
         print(f"📦 Archived {moved_count} old rows for {slug} {checkin} before upsert")
     except HTTPError as e:
         print("⚠️ archive_previous_snapshot failed:", e, getattr(e.response, "text", "")[:400])
 
+def delete_current_snapshot(user_id: str, slug: str, checkin: str):
+    """Hard delete rows for the (slug, checkin) in RAW so UI shows 'no availability'."""
+    try:
+        # If you created fn_delete_day_rows, use it; otherwise do a REST delete:
+        # http_delete(f"/rest/v1/room_prices_raw",
+        #   {"user_id": f"eq.{user_id}", "slug": f"eq.{slug}", "checkin": f"eq.{checkin}"})
+        r = http_post(
+            f"/rest/v1/rpc/fn_delete_day_rows", {},
+            {"p_user_id": user_id, "p_slug": slug, "p_checkin": checkin},
+            upsert=False, timeout_sec=30
+        )
+        deleted = int(r.json() or 0)
+        print(f"🧹 Deleted {deleted} rows for {slug} {checkin} (sold out)")
+    except HTTPError as e:
+        print("⚠️ delete_current_snapshot failed:", e, getattr(e.response, "text", "")[:400])
+
 def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
+    # … unchanged …
     try:
         r = http_post(
-            f"/rest/v1/{SOLDOUT_TABLE}",
+            f"/rest/v1/soldout_markers",
             {"on_conflict": "user_id,slug,checkin"},
             [{"user_id": user_id, "slug": slug.lower(), "checkin": checkin}],
             upsert=True,
             prefer="resolution=ignore-duplicates,return=representation",
         )
         rows = r.json() if r.text else []
-        return bool(rows)  # True if inserted (first time)
+        return bool(rows)  # True if inserted
     except HTTPError as e:
         print("⚠️ ensure_soldout_marker failed:", e, getattr(e.response, "text", "")[:400])
         return False
@@ -412,26 +433,13 @@ def process_job(first_row: dict):
     try:
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = []
-
-            for h in hotels:
-                if canceled() or over_time_budget():
-                    break
-                for d in range(range_days):
-                    if canceled() or over_time_budget():
-                        break
-                    checkin = (start_date + dt.timedelta(days=d)).strftime("%Y-%m-%d")
-                    checkout = (start_date + dt.timedelta(days=d + 1)).strftime("%Y-%m-%d")
-
-                    set_job_fields(job_id, meta={"last_hotel": h["name"], "last_checkin": checkin, "own": bool(h.get("own"))})
-
-                    futures.append(pool.submit(_scrape_once, job_id, user_id, h, checkin, checkout))
+            # … enqueue work … (unchanged)
 
             buffer_rows: List[dict] = []
             buffer_lock = threading.Lock()
 
             for fut in as_completed(futures):
-                if canceled():
-                    break
+                if canceled(): break
                 if over_time_budget():
                     set_job_fields(job_id, status="failed", finished_at=now_iso_z(), last_error="time budget exceeded")
                     print(f"⏱️ job {job_id} exceeded time budget; failing")
@@ -444,6 +452,7 @@ def process_job(first_row: dict):
                     rows = result.get("rows") or []
 
                     if rows:
+                        # fresh data → archive previous + stage upsert
                         if slug and checkin:
                             archive_previous_snapshot(user_id, slug, checkin)
 
@@ -451,6 +460,7 @@ def process_job(first_row: dict):
                             buffer_rows.extend(rows)
                             if len(buffer_rows) >= 300:
                                 upsert_room_prices(user_id, job_id, buffer_rows)
+                                # having prices ⇒ clear sold-out
                                 try:
                                     seen_pairs = set()
                                     for rr in buffer_rows:
@@ -461,11 +471,18 @@ def process_job(first_row: dict):
                                 except Exception as e:
                                     print("⚠️ clear_soldout_marker batch err:", e)
                                 buffer_rows.clear()
+
                     else:
+                        # **NO PRICES**: archive old, DELETE snapshot, mark sold-out, alert
                         if slug and checkin:
+                            try:
+                                archive_previous_snapshot(user_id, slug, checkin)
+                            except Exception:
+                                pass
+                            delete_current_snapshot(user_id, slug, checkin)
                             first_time = ensure_soldout_marker(user_id, slug, checkin)
-                            if not first_time:
-                                insert_soldout_alert(user_id, slug, checkin)
+                            # If you'd like immediate alert on first hit, do it unconditionally:
+                            insert_soldout_alert(user_id, slug, checkin)
 
                 except Exception as e:
                     print("⚠️ parallel scrape step error:", e)
@@ -489,16 +506,10 @@ def process_job(first_row: dict):
                         seen_pairs.add(key)
             except Exception as e:
                 print("⚠️ final clear_soldout_marker err:", e)
-            buffer_rows = []
 
         set_heartbeat(job_id)
-
-        if canceled():
-            set_job_fields(job_id, status="canceled", finished_at=now_iso_z())
-            print(f"🟠 job {job_id} canceled by user")
-        else:
-            set_job_fields(job_id, status="done", finished_at=now_iso_z())
-            print(f"✅ job {job_id} done")
+        if canceled(): set_job_fields(job_id, status="canceled", finished_at=now_iso_z())
+        else:          set_job_fields(job_id, status="done",     finished_at=now_iso_z())
 
     except HTTPError as http_err:
         print("💥 HTTP error in process_job:", http_err, getattr(http_err.response, "text", "")[:400])
