@@ -3,9 +3,11 @@
 # Background worker for scraping Booking, persisting prices, and generating
 # alerts. Hardened with:
 # - Robust HTTP client (retries, keep-alive, timeouts)
-# - Playwright retry/cancel handled in scraper_core
 # - Per-step heartbeat + overall job time budget (kills runaways)
 # - Stale job reaper (before each poll cycle) with jittered backoff loop
+# - SOLD-OUT path: archive → delete snapshot → marker → alert
+# - ***Batch de-duplication before UPSERT*** to avoid
+#   "ON CONFLICT DO UPDATE command cannot affect row a second time"
 #
 # ENV (required):
 #   SUPABASE_URL
@@ -30,7 +32,7 @@ import time
 import random
 import datetime as dt
 from datetime import timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
@@ -103,7 +105,7 @@ def get_http_session() -> requests.Session:
         connect=6,
         read=6,
         status=6,
-        backoff_factor=0.8,   # 0.8, 1.6, 3.2, 6.4, ...
+        backoff_factor=0.8,
         status_forcelist=(429, 500, 502, 503, 504),
         allowed_methods=frozenset(["GET", "POST", "PATCH", "DELETE"]),
         raise_on_status=False,
@@ -128,71 +130,55 @@ def now_iso_z() -> str:
 
 def http_get(path: str, params: Dict[str, Any]) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
-    try:
-        r = get_http_session().get(
-            url,
-            params=params,
-            headers=supabase_headers(json_pref=False),
-            timeout=DEFAULT_TIMEOUT,
-        )
-        r.raise_for_status()
-        return r
-    except requests.RequestException as e:
-        print("❌ http_get failure:", url, "| params:", params, "| err:", repr(e))
-        raise
+    r = get_http_session().get(
+        url,
+        params=params,
+        headers=supabase_headers(json_pref=False),
+        timeout=DEFAULT_TIMEOUT,
+    )
+    r.raise_for_status()
+    return r
 
 def http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
     headers = supabase_headers()
     if prefer_return:
         headers["Prefer"] = "return=representation"
-    try:
-        r = get_http_session().patch(
-            url,
-            params=params,
-            json=json_body,
-            headers=headers,
-            timeout=DEFAULT_TIMEOUT,
-        )
-        r.raise_for_status()
-        return r
-    except requests.RequestException as e:
-        print("❌ http_patch failure:", url, "| params:", params, "| err:", repr(e))
-        raise
+    r = get_http_session().patch(
+        url,
+        params=params,
+        json=json_body,
+        headers=headers,
+        timeout=DEFAULT_TIMEOUT,
+    )
+    r.raise_for_status()
+    return r
 
 def http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False, prefer: Optional[str] = None, timeout_sec: int = 60) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
     headers = supabase_headers(upsert=upsert)
     if prefer:
         headers["Prefer"] = prefer
-    try:
-        r = get_http_session().post(
-            url,
-            params=params,
-            json=json_body,
-            headers=headers,
-            timeout=(CONNECT_TIMEOUT, timeout_sec),
-        )
-        r.raise_for_status()
-        return r
-    except requests.RequestException as e:
-        print("❌ http_post failure:", url, "| params:", params, "| err:", repr(e))
-        raise
+    r = get_http_session().post(
+        url,
+        params=params,
+        json=json_body,
+        headers=headers,
+        timeout=(CONNECT_TIMEOUT, timeout_sec),
+    )
+    r.raise_for_status()
+    return r
 
 def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:
     url = f"{SUPABASE_URL}{path}"
-    try:
-        r = get_http_session().delete(
-            url,
-            params=params,
-            headers=supabase_headers(json_pref=False),
-            timeout=DEFAULT_TIMEOUT,
-        )
-        r.raise_for_status()
-        return r
-    except requests.RequestException as e:
-        print("❌ http_delete failure:", url, "| params:", params, "| err:", repr(e))
-        raise
+    r = get_http_session().delete(
+        url,
+        params=params,
+        headers=supabase_headers(json_pref=False),
+        timeout=DEFAULT_TIMEOUT,
+    )
+    r.raise_for_status()
+    return r
 
 # ------------------------------------------------------------------------------
 # scrape_jobs helpers
@@ -368,8 +354,17 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return out
 
 def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
+    """
+    Clean → collapse by unique key (user_id, slug, checkin, room, occupancy)
+    picking the MIN(price) → chunked UPSERT.
+
+    Collapsing avoids Postgres error:
+      "ON CONFLICT DO UPDATE command cannot affect row a second time"
+    when duplicate keys exist in the *same* INSERT batch.
+    """
     if not rows:
         return
+
     clean: List[Dict[str, Any]] = []
     for r in rows:
         base = {
@@ -390,8 +385,27 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
     if not clean:
         return
 
-    for i in range(0, len(clean), 400):
-        batch = clean[i : i + 400]
+    # --- collapse duplicates by unique key, keep MIN(price) ---
+    collapsed: Dict[Tuple[str, str, str, str, int], Dict[str, Any]] = {}
+    for r in clean:
+        key = (
+            r["user_id"],
+            r["slug"],
+            r["checkin"],
+            r["room"],
+            int(r["occupancy"]),
+        )
+        prev = collapsed.get(key)
+        if prev is None or float(r["price"]) < float(prev["price"]):
+            collapsed[key] = r
+
+    batch_rows = list(collapsed.values())
+    if not batch_rows:
+        return
+
+    # smaller chunks lower the chance of edge conflicts
+    for i in range(0, len(batch_rows), 200):
+        batch = batch_rows[i : i + 200]
         try:
             http_post(
                 f"/rest/v1/{RAW_TABLE}",
@@ -403,8 +417,10 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
             print(f"✅ Upserted {len(batch)} rows into room_prices_raw")
         except HTTPError as e:
             print("❌ upsert_room_prices error:", e, getattr(e.response, "text", "")[:400])
-            print("   sample row:", batch[0])
-            raise
+            if batch:
+                print("   sample row:", batch[0])
+            # Don't re-raise here—continue the job and let other days proceed
+            # If you prefer hard-fail to stop the job, change to: raise
 
 # ------------------------------------------------------------------------------
 # scrape task for a single (hotel, date)
@@ -635,14 +651,11 @@ def main():
 
     while True:
         try:
-            # cleanup zombies
             reap_stale_jobs()
 
             job = fetch_next_pending_job()
             if not job:
-                # idle sleep; small jitter avoids thundering herd
-                sleep_s = 8 + random.uniform(0.0, 4.0)
-                time.sleep(sleep_s)
+                time.sleep(8 + random.uniform(0.0, 4.0))
                 consecutive_errors = 0
                 continue
 
