@@ -1,22 +1,14 @@
 # scraper_core.py
-# ------------------------------------------------------------------------------
-# Core helpers + Booking scraper (English-only) with occupancy-aware passes.
-# Extracts from the main #hprt-table and parses rate conditions (meal plan,
-# refundability, payment mode) so UI filters are non-null.
-#
-# ENV (required):
-#   SUPABASE_URL
-#   SUPABASE_SERVICE_ROLE_KEY
-#
-# ENV (optional):
-#   DEFAULT_CC=si
-#   RESOLVE_CC_IF_MISSING=1
-#   COMMON_CCS="si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr"
-#   PAGE_GOTO_TIMEOUT_MS=20000
-#   WAIT_TABLE_TIMEOUT_MS=9000
-#   SCROLL_PASSES=12
-#   NO_SANDBOX=1
-# ------------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# Shared scraper/core:
+#  - English-only rendering (locale + Accept-Language)
+#  - Occupancy-aware scrape (adults 1..4)
+#  - Extract rate attributes from the "conditions" cell:
+#       breakfast_included, dinner_included, half_board,
+#       free_cancellation, nonrefundable, prepay_required,
+#       rate_plan (simple text tag)
+#  - Helpers for Supabase.
+# ──────────────────────────────────────────────────────────────────────────────
 
 import os
 import re
@@ -47,7 +39,7 @@ COMMON_CCS = (
 ).split(",")
 
 PAGE_GOTO_TIMEOUT_MS = int(os.getenv("PAGE_GOTO_TIMEOUT_MS", "20000"))
-WAIT_TABLE_TIMEOUT_MS = int(os.getenv("WAIT_TABLE_TIMEOUT_MS", "9000"))
+WAIT_TABLE_TIMEOUT_MS = int(os.getenv("WAIT_TABLE_TIMEOUT_MS", "8000"))
 SCROLL_PASSES = int(os.getenv("SCROLL_PASSES", "12"))
 
 USER_AGENT = (
@@ -57,7 +49,7 @@ USER_AGENT = (
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Supabase helpers
+# Supabase headers
 # ──────────────────────────────────────────────────────────────────────────────
 def supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:
     h = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
@@ -109,7 +101,6 @@ def _get_user_links(user_id: str) -> List[dict]:
             bcc   = (prof.get("booking_cc") or "").strip().lower() or ""
         else:
             bslug, bcc = "", ""
-
         out.append({
             "hotel_id": row.get("hotel_id"),
             "link_type": (row.get("link_type") or "").strip(),
@@ -121,7 +112,7 @@ def _get_user_links(user_id: str) -> List[dict]:
         })
     return out
 
-def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:
+def get_own_hotel(user_id: str):
     links = _get_user_links(user_id)
     if not links:
         return None
@@ -138,7 +129,7 @@ def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:
     cc = (first.get("booking_cc") or "").lower() or None
     return {"hotel_id": first["hotel_id"], "name": first["name"] or "My Hotel", "slug": slug, "cc": cc}
 
-def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[dict]:
+def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:
     links = _get_user_links(user_id)
     out: List[Dict[str, Any]] = []
     for l in links:
@@ -159,7 +150,7 @@ def resolve_cc_for_slug(slug: str, timeout: float = 4.0) -> Optional[str]:
     if not slug:
         return None
     s = requests.Session()
-    headers = {"User-Agent": USER_AGENT}
+    headers = {"User-Agent": USER_AGENT, "Accept-Language": "en-GB,en;q=0.9"}
     for cc in COMMON_CCS:
         try:
             url = f"https://www.booking.com/hotel/{cc}/{slug}.html?lang=en-gb"
@@ -177,48 +168,70 @@ def resolve_cc_for_slug(slug: str, timeout: float = 4.0) -> Optional[str]:
     return None
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Scraper (English-only) from #hprt-table with conditions parsing
+# Scraper helpers
 # ──────────────────────────────────────────────────────────────────────────────
-
-HPRT_TABLE_SEL = "#hprt-table"
-ROW_SEL = f"{HPRT_TABLE_SEL} tr"
-
-NAME_SELS = [
-    ".hprt-roomtype-icon-link",
-    ".hprt-roomtype-name",
-    "[data-testid='room-name']",
+EXPAND_SELECTORS = [
+    "button:has-text('Show all')","button:has-text('Show more')",
+    "button:has-text('See all rooms')","a:has-text('Show all')",
+    "a:has-text('Show more')","a:has-text('See all rooms')",
 ]
-PRICE_SELS = [
-    "[data-testid='price-and-discounted-price']",
-    ".bui-price-display__value",
+ROOM_TABLE_SELECTORS = ["#hprt-table", "table.hprt-table", "[data-testid='hprt-table']"]
+ROW_SELECTORS = ["tr.js-rt-block-row", "table.hprt-table tr", "[data-testid='room-row']"]
+PRICE_SELECTORS = [
     ".prco-valign-middle-helper",
+    ".bui-price-display__value",
+    "[data-testid='price-and-discounted-price']",
     ".prco-inline-price",
 ]
-COND_CELL_SELS = [
-    ".hprt-table-cell-conditions",
-    ".hprt-table-cell.hprt-table-cell-conditions",
-]
-CANCELLATION_BLOCK_SEL = "[data-testid='cancellation-policy']"
-PREPAYMENT_BLOCK_SEL   = "[data-testid='prepayment-policy']"
-VALUE_ADDS_BLOCK_SEL   = "[data-testid='RoomTableValueAdds-wrapper']"
 
-MEAL_KEYWORDS = {
-    "FB": ["full board"],
-    "HB": [
-        "half board",
-        "breakfast & dinner included",
-        "breakfast and dinner included",
-        "dinner included",
-    ],
-    "BB": [
-        "breakfast included",
-        "with breakfast",
-    ],
-    "RO_NEG": [
-        "room only",
-        "no breakfast",
-    ],
-}
+OCC_PATTERNS = [
+    r"\bfor\s+(\d+)\s+adults?\b",
+    r"\bprice\s+for\s+(\d+)\s+adults?\b",
+    r"\b(\d+)\s+adults?\b",
+    r"\bfor\s+(\d+)\s+people\b",
+    r"\b(\d+)\s+guests?\b",
+    r"\bsleeps\s+(\d+)\b",
+]
+
+def clean_price(text: str) -> Optional[float]:
+    if not text:
+        return None
+    txt = text.replace("\u00A0", " ").replace(",", ".")
+    m = re.search(r"(\d+(?:\.\d+)?)", txt)
+    return float(m.group(1)) if m else None
+
+def find_adults_in_text(text: str) -> Optional[int]:
+    if not text:
+        return None
+    t = " ".join(text.split()).lower()
+    for pat in OCC_PATTERNS:
+        m = re.search(pat, t)
+        if m:
+            try:
+                n = int(m.group(1))
+                if 1 <= n <= 8:
+                    return n
+            except Exception:
+                pass
+    return None
+
+def row_level_occupancy_hint(row) -> Optional[int]:
+    try:
+        txt = row.inner_text() or ""
+        return find_adults_in_text(txt)
+    except Exception:
+        return None
+
+def get_occupancy_from_name(name: str) -> int:
+    n = (name or "").lower()
+    if "triple" in n: return 3
+    if "quadruple" in n or "family" in n: return 4
+    if "single" in n: return 1
+    return 2
+
+def is_valid_row(name: str) -> bool:
+    n = (name or "").lower()
+    return not any(x in n for x in ["review", "score", "rating"])
 
 def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, adults: int, lang="en-gb"):
     cc_eff = (cc or DEFAULT_CC).lower()
@@ -230,10 +243,221 @@ def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, a
         "group_children": 0,
         "no_rooms": 1,
         "selected_currency": "EUR",
-        "lang": lang,  # FORCE ENGLISH
+        "lang": lang,
         "sb_price_type": "total",
     }
     return f"{base}?{urlencode(qs)}"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Attribute parsing (English only)
+# ──────────────────────────────────────────────────────────────────────────────
+def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:
+    """
+    Look into the conditions cell + policy snippets inside the row and extract flags.
+    Returns booleans or None.
+    """
+    flags = {
+        "breakfast_included": None,
+        "dinner_included": None,
+        "half_board": None,
+        "free_cancellation": None,
+        "nonrefundable": None,
+        "prepay_required": None,
+        "rate_plan": None,
+    }
+
+    # Try “conditions” cell text
+    cond_el = row.query_selector("td.hprt-table-cell-conditions, [data-testid='room-row'] td:has([data-testid*='policy'])")
+    blob = ""
+    try:
+        blob = (cond_el.inner_text() if cond_el else "") or ""
+    except Exception:
+        blob = ""
+
+    t = " ".join(blob.split()).lower()
+
+    # Meals
+    if "breakfast included" in t or re.search(r"\bwith breakfast\b", t):
+        flags["breakfast_included"] = True
+    elif "breakfast" in t and ("not included" in t or "extra charge" in t):
+        flags["breakfast_included"] = False
+
+    if "dinner included" in t:
+        flags["dinner_included"] = True
+    if "half board is included" in t or "half board included" in t:
+        flags["half_board"] = True
+
+    # Cancellation
+    if "free cancellation" in t:
+        flags["free_cancellation"] = True
+    if "non-refundable" in t or "non refundable" in t or "total cost to cancel" in t:
+        flags["nonrefundable"] = True
+        # If it's explicitly non-refundable, free_cancellation is False
+        flags["free_cancellation"] = False if flags["free_cancellation"] is None else flags["free_cancellation"]
+
+    # Prepayment
+    if "no prepayment needed" in t or "pay at the property" in t:
+        flags["prepay_required"] = False
+    if "prepayment" in t and ("required" in t or "will be charged" in t):
+        flags["prepay_required"] = True
+
+    # A simple textual tag we can show (best-effort)
+    if flags["nonrefundable"]:
+        if flags["breakfast_included"]:
+            flags["rate_plan"] = "NRF w/ breakfast"
+        else:
+            flags["rate_plan"] = "Non-refundable"
+    elif flags["free_cancellation"]:
+        if flags["breakfast_included"]:
+            flags["rate_plan"] = "Free cancel + breakfast"
+        else:
+            flags["rate_plan"] = "Free cancellation"
+    elif flags["half_board"] or flags["dinner_included"]:
+        flags["rate_plan"] = "Half board"
+    elif flags["breakfast_included"]:
+        flags["rate_plan"] = "Breakfast"
+    else:
+        flags["rate_plan"] = None
+
+    # Also check specific policy nodes (if present)
+    try:
+        canc = row.query_selector("[data-testid='cancellation-policy']")
+        if canc:
+            ctext = (canc.inner_text() or "").lower()
+            if "free cancellation" in ctext:
+                flags["free_cancellation"] = True
+            if "non-refundable" in ctext or "total cost to cancel" in ctext:
+                flags["nonrefundable"] = True
+                flags["free_cancellation"] = False if flags["free_cancellation"] is None else flags["free_cancellation"]
+    except Exception:
+        pass
+
+    try:
+        pre = row.query_selector("[data-testid='prepayment-policy']")
+        if pre:
+            ptext = (pre.inner_text() or "").lower()
+            if "no prepayment needed" in ptext or "pay at the property" in ptext:
+                flags["prepay_required"] = False
+            if ("prepayment" in ptext and "required" in ptext) or "will be charged" in ptext:
+                flags["prepay_required"] = True
+    except Exception:
+        pass
+
+    return flags
+
+def extract_price_with_context(price_el) -> (Optional[float], Optional[int]):
+    price = None
+    try:
+        price = clean_price(price_el.inner_text())
+    except Exception:
+        return None, None
+    if price is None:
+        return None, None
+    try:
+        context_text = price_el.evaluate(
+            """(el) => {
+                let txt = '';
+                let node = el;
+                for (let i=0; i<3 && node; i++){
+                  txt += ' ' + (node.innerText || '');
+                  node = node.parentElement;
+                }
+                return txt;
+            }"""
+        )
+    except Exception:
+        context_text = ""
+    occ = find_adults_in_text(context_text)
+    return price, occ
+
+def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    # rows
+    for table_sel in ROOM_TABLE_SELECTORS:
+        table = page.query_selector(table_sel)
+        if not table:
+            continue
+        rows = table.query_selector_all(",".join(ROW_SELECTORS))
+        for row in rows:
+            try:
+                name_el = (
+                    row.query_selector(".hprt-roomtype-icon-link")
+                    or row.query_selector(".hprt-roomtype-name")
+                    or row.query_selector("[data-testid='room-name']")
+                )
+                room_name = (name_el.inner_text().strip() if name_el else None)
+                if not room_name or not is_valid_row(room_name):
+                    continue
+
+                row_occ = row_level_occupancy_hint(row)
+                accepted_any = False
+
+                attrs = parse_rate_attributes_from_row(row)
+
+                for td in row.query_selector_all("td,div,section"):
+                    for psel in PRICE_SELECTORS:
+                        pel = td.query_selector(psel)
+                        if not pel:
+                            continue
+                        price, occ_ctx = extract_price_with_context(pel)
+                        if price is None:
+                            continue
+
+                        if occ_ctx is not None:
+                            occ_final = occ_ctx
+                        elif row_occ is not None:
+                            occ_final = row_occ
+                        else:
+                            occ_final = get_occupancy_from_name(room_name)
+
+                        if occ_final == adults:
+                            results.append({
+                                "room": re.sub(r"\s+", " ", room_name),
+                                "price": price,
+                                "occupancy": adults,
+                                # parsed flags
+                                "breakfast_included": attrs["breakfast_included"],
+                                "dinner_included": attrs["dinner_included"],
+                                "half_board": attrs["half_board"],
+                                "free_cancellation": attrs["free_cancellation"],
+                                "nonrefundable": attrs["nonrefundable"],
+                                "prepay_required": attrs["prepay_required"],
+                                "rate_plan": attrs["rate_plan"],
+                            })
+                            accepted_any = True
+
+                if not accepted_any:
+                    # fallback grab first price in row for this adults
+                    inferred = get_occupancy_from_name(room_name)
+                    if inferred == adults:
+                        first_price = None
+                        for td in row.query_selector_all("td,div,section"):
+                            for psel in PRICE_SELECTORS:
+                                pel = td.query_selector(psel)
+                                if pel:
+                                    first_price = clean_price(pel.inner_text())
+                                    if first_price is not None:
+                                        break
+                            if first_price is not None:
+                                break
+                        if first_price is not None:
+                            attrs = parse_rate_attributes_from_row(row)
+                            results.append({
+                                "room": re.sub(r"\s+", " ", room_name),
+                                "price": first_price,
+                                "occupancy": adults,
+                                "breakfast_included": attrs["breakfast_included"],
+                                "dinner_included": attrs["dinner_included"],
+                                "half_board": attrs["half_board"],
+                                "free_cancellation": attrs["free_cancellation"],
+                                "nonrefundable": attrs["nonrefundable"],
+                                "prepay_required": attrs["prepay_required"],
+                                "rate_plan": attrs["rate_plan"],
+                            })
+
+            except Exception:
+                continue
+    return results
 
 def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bool]] = None):
     def cancelled() -> bool:
@@ -245,9 +469,9 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
     except TimeoutError:
         pass
 
-    for _ in range(2):
+    for _ in range(3):
         if cancelled(): return
-        for sel in ["button:has-text('Show all')","button:has-text('See all rooms')","a:has-text('Show all')","a:has-text('See all rooms')"]:
+        for sel in EXPAND_SELECTORS:
             try:
                 page.locator(sel).first.click(timeout=400)
                 page.wait_for_timeout(120)
@@ -259,7 +483,7 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
         if cancelled(): return
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         page.wait_for_timeout(500)
-        for sel in ["button:has-text('Show all')","a:has-text('Show all')"]:
+        for sel in EXPAND_SELECTORS:
             try:
                 page.locator(sel).first.click(timeout=300)
             except Exception:
@@ -269,205 +493,28 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
             break
         last_h = h
 
-def _text(el) -> str:
-    try:
-        return (el.inner_text() or "").strip()
-    except Exception:
-        return ""
-
-def _find_first_text(row, selectors: List[str]) -> str:
-    for sel in selectors:
-        el = row.query_selector(sel)
-        if el:
-            t = _text(el)
-            if t:
-                return t
-    return ""
-
-def _detect_meal_from_text(t: str) -> Optional[str]:
-    tl = t.lower()
-    for code, keys in MEAL_KEYWORDS.items():
-        if code == "RO_NEG":  # handled later
-            continue
-        if any(k in tl for k in keys):
-            return code
-    if any(k in tl for k in MEAL_KEYWORDS["RO_NEG"]):
-        return "RO"
-    return None
-
-def _detect_refundable_from_text(t: str) -> Optional[bool]:
-    tl = t.lower()
-    if "free cancellation" in tl:
-        return True
-    if "non-refundable" in tl or "total cost to cancel" in tl:
-        return False
-    return None
-
-def _detect_pay_mode_from_text(t: str) -> Optional[str]:
-    tl = t.lower()
-    if "no prepayment needed" in tl or "pay at the property" in tl:
-        return "PAY_AT_PROPERTY"
-    if "prepayment" in tl or "deposit required" in tl:
-        return "PREPAY"
-    return None
-
-def _short_title_from_text(t: str) -> Optional[str]:
-    pats = [
-        r"(Breakfast\s*&\s*dinner included)",
-        r"(Breakfast and dinner included)",
-        r"(Breakfast included)",
-        r"(Free cancellation)",
-        r"(Non[- ]?refundable)",
-        r"(No prepayment needed)",
-        r"(Pay at the property)",
-        r"(Half board)",
-        r"(Full board)",
-    ]
-    s = " ".join(t.split())
-    for p in pats:
-        m = re.search(p, s, flags=re.I)
-        if m:
-            return m.group(1)
-    return None
-
-def _coerce_price_from_any(el) -> Optional[float]:
-    t = _text(el)
-    if not t:
-        return None
-    t = t.replace("\u00A0", " ").replace(",", ".")
-    m = re.search(r"(\d+(?:\.\d+)?)", t)
-    return float(m.group(1)) if m else None
-
-def _row_is_room_content(row) -> bool:
-    if row.query_selector(", ".join(PRICE_SELS)):
-        return True
-    if row.query_selector(", ".join(COND_CELL_SELS)):
-        return True
-    name = _find_first_text(row, NAME_SELS)
-    return bool(name)
-
-def _occupancy_hint_from_row(row) -> Optional[int]:
-    try:
-        txt = (row.inner_text() or "").lower()
-    except Exception:
-        txt = ""
-    for pat in [r"\bfor\s+(\d+)\s+adults?\b", r"\b(\d+)\s+adults?\b", r"\bsleeps\s+(\d+)\b", r"\b(\d+)\s+guests?\b"]:
-        m = re.search(pat, txt)
-        if m:
-            try:
-                n = int(m.group(1))
-                if 1 <= n <= 8:
-                    return n
-            except Exception:
-                pass
-    return None
-
-def _parse_conditions_blob(row) -> dict:
-    parts: List[str] = []
-    for sel in COND_CELL_SELS:
-        cell = row.query_selector(sel)
-        if cell:
-            parts.append(_text(cell))
-            for sub in (VALUE_ADDS_BLOCK_SEL, CANCELLATION_BLOCK_SEL, PREPAYMENT_BLOCK_SEL):
-                subel = cell.query_selector(sub)
-                if subel:
-                    parts.append(_text(subel))
-    blob = "\n".join([p for p in parts if p]).strip()
-    if not blob:
-        return {"rate_meal": None, "is_refundable": None, "pay_mode": None, "rate_title": None, "rate_notes": None}
-    meal = _detect_meal_from_text(blob)
-    refundable = _detect_refundable_from_text(blob)
-    pay_mode = _detect_pay_mode_from_text(blob)
-    title = _short_title_from_text(blob)
-    return {
-        "rate_meal": meal,
-        "is_refundable": refundable,
-        "pay_mode": pay_mode,
-        "rate_title": title,
-        "rate_notes": blob[:1000],  # keep a short excerpt for debugging/search
-    }
-
-def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
-    """
-    Parse the main #hprt-table rows. Emit one row per distinct price cell found.
-    Returns [{room, price, occupancy, rate_meal, is_refundable, pay_mode, rate_title, rate_notes}]
-    """
-    out: List[dict] = []
-    table = page.query_selector(HPRT_TABLE_SEL)
-    if not table:
-        return out
-
-    rows = page.query_selector_all(ROW_SEL)
-    rows = [r for r in rows if _row_is_room_content(r)]
-    if not rows:
-        return out
-
-    last_cond = {"rate_meal": None, "is_refundable": None, "pay_mode": None, "rate_title": None, "rate_notes": None}
-    last_room: Optional[str] = None
-
-    for r in rows:
-        try:
-            cond = _parse_conditions_blob(r)
-            if any(v for v in cond.values() if v not in (None, "")):
-                last_cond = cond
-
-            room_name = _find_first_text(r, NAME_SELS) or last_room
-            if room_name:
-                last_room = room_name
-
-            price_els = []
-            for psel in PRICE_SELS:
-                price_els.extend(r.query_selector_all(psel))
-            if not price_els:
-                continue
-
-            occ = _occupancy_hint_from_row(r) or adults
-
-            seen_prices: set[float] = set()
-            for pel in price_els:
-                price = _coerce_price_from_any(pel)
-                if price is None or price in seen_prices:
-                    continue
-                seen_prices.add(price)
-
-                out.append({
-                    "room": (room_name or "Room").strip(),
-                    "price": float(price),
-                    "occupancy": int(occ),
-                    "rate_meal": last_cond.get("rate_meal"),
-                    "is_refundable": last_cond.get("is_refundable"),
-                    "pay_mode": last_cond.get("pay_mode"),
-                    "rate_title": last_cond.get("rate_title"),
-                    "rate_notes": last_cond.get("rate_notes"),
-                    "rate_source": "hprt-table",
-                })
-        except Exception:
-            continue
-
-    return out
-
 def scrape_hotel_for_dates(
-    name: str, slug: str, cc: Optional[str], checkin: str, checkout: str,
+    name: str,
+    slug: str,
+    cc: Optional[str],
+    checkin: str,
+    checkout: str,
     should_cancel: Optional[Callable[[], bool]] = None,
 ) -> List[dict]:
-    """
-    For adults=1..4:
-      - Load hotel with lang=en-gb, checkin/checkout & group_adults
-      - Expand & scroll
-      - Parse #hprt-table and collect prices + conditions
-    """
-    def cancelled() -> bool:
-        return bool(should_cancel and should_cancel())
-
     out: List[dict] = []
     with sync_playwright() as p:
         extra_args = ["--no-sandbox"] if os.getenv("NO_SANDBOX") == "1" else []
         browser = p.chromium.launch(headless=True, args=extra_args)
         context = browser.new_context(
-            locale="en-GB",  # FORCE ENGLISH
+            locale="en-GB",
             viewport={"width": 1400, "height": 900},
             user_agent=USER_AGENT,
+            extra_http_headers={"Accept-Language": "en-GB,en;q=0.9"},
         )
+        # Prefer English for JS runtime too
+        context.add_init_script("""Object.defineProperty(navigator, 'language', {get: ()=>'en-GB'}); Object.defineProperty(navigator, 'languages', {get: ()=>['en-GB','en']});""")
+
+        # Block heavy resources
         context.route(
             "**/*",
             lambda route: route.abort()
@@ -476,9 +523,11 @@ def scrape_hotel_for_dates(
         )
         page = context.new_page()
 
+        def cancelled() -> bool:
+            return bool(should_cancel and should_cancel())
+
         for adults in (1, 2, 3, 4):
-            if cancelled():
-                break
+            if cancelled(): break
             url = build_hotel_url(cc, slug, checkin, checkout, adults, lang="en-gb")
             print(f"🏨 {name} | {checkin}→{checkout} | adults={adults}\n   {url}")
             try:
@@ -487,16 +536,15 @@ def scrape_hotel_for_dates(
                 print("⚠️ Timeout loading hotel page.")
                 continue
 
-            if cancelled():
-                break
+            if cancelled(): break
 
             try:
                 aggressively_expand_and_scroll(page, should_cancel=should_cancel)
-                if cancelled():
-                    break
+                if cancelled(): break
 
+                # wait for table/rows
                 try:
-                    page.wait_for_selector(HPRT_TABLE_SEL, timeout=WAIT_TABLE_TIMEOUT_MS)
+                    page.wait_for_selector(",".join(ROOM_TABLE_SELECTORS), timeout=WAIT_TABLE_TIMEOUT_MS)
                 except TimeoutError:
                     print("⚠️ No room table found.")
                     continue
@@ -510,12 +558,13 @@ def scrape_hotel_for_dates(
                         "room": r["room"],
                         "occupancy": r["occupancy"],
                         "price": r["price"],
-                        "rate_meal": r.get("rate_meal"),
-                        "is_refundable": r.get("is_refundable"),
-                        "pay_mode": r.get("pay_mode"),
-                        "rate_title": r.get("rate_title"),
-                        "rate_notes": r.get("rate_notes"),
-                        "rate_source": r.get("rate_source"),
+                        "breakfast_included": r.get("breakfast_included"),
+                        "dinner_included": r.get("dinner_included"),
+                        "half_board": r.get("half_board"),
+                        "free_cancellation": r.get("free_cancellation"),
+                        "nonrefundable": r.get("nonrefundable"),
+                        "prepay_required": r.get("prepay_required"),
+                        "rate_plan": r.get("rate_plan"),
                     })
 
             except Exception as e:
@@ -526,13 +575,9 @@ def scrape_hotel_for_dates(
     return out
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Post-processing
+# Post-processing: keep min per (slug, checkin, room, occupancy)
 # ──────────────────────────────────────────────────────────────────────────────
 def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:
-    """
-    Keep the minimum price per (slug, checkin, room, occupancy).
-    Preserves extra fields (rate_*) from the cheapest option seen.
-    """
     best: Dict[tuple, dict] = {}
     for r in rows:
         slug_lower = (r["slug"] or "").lower()
@@ -541,8 +586,19 @@ def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:
         if price is None:
             continue
         if key not in best or price < best[key]["price"]:
-            best[key] = dict(r)
-            best[key]["slug"] = slug_lower
-            best[key]["price"] = float(price)
-            best[key]["occupancy"] = int(r["occupancy"])
+            best[key] = {
+                "hotel": r["hotel"],
+                "slug": slug_lower,
+                "checkin": r["checkin"],
+                "room": r["room"],
+                "occupancy": int(r["occupancy"]),
+                "price": float(price),
+                "breakfast_included": r.get("breakfast_included"),
+                "dinner_included": r.get("dinner_included"),
+                "half_board": r.get("half_board"),
+                "free_cancellation": r.get("free_cancellation"),
+                "nonrefundable": r.get("nonrefundable"),
+                "prepay_required": r.get("prepay_required"),
+                "rate_plan": r.get("rate_plan"),
+            }
     return list(best.values())
