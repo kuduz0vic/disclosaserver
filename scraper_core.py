@@ -621,6 +621,6 @@ def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:
                 "nonrefundable": r.get("nonrefundable"),
                 "prepay_required": r.get("prepay_required"),
                 "rate_plan": r.get("rate_plan"),
-                "rate_key": rate_key,  # <<< ADDED >>>
+                "rate_key": r.get("rate_key"),
             }
     return list(best.values())

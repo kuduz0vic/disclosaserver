@@ -569,7 +569,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def now_iso_z() -> str:\n    return (dt.datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(\"+00:00\", \"Z\"))\ndef http_get(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    r = requests.get(url, params=params, headers=supabase_headers(json_pref=False), timeout=30)\n    r.raise_for_status()\n    return r\ndef http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    headers = supabase_headers()",
+        "peekOfCode": "def now_iso_z() -> str:\n    return (dt.datetime.now(timezone.utc).replace(microsecond=0)\n            .isoformat().replace(\"+00:00\", \"Z\"))\ndef http_get(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    r = requests.get(url, params=params, headers=supabase_headers(json_pref=False), timeout=30)\n    r.raise_for_status()\n    return r\ndef http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -605,7 +605,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    r = requests.delete(url, params=params, headers=supabase_headers(json_pref=False), timeout=30)\n    r.raise_for_status()\n    return r\n# ──────────────────────────────────────────────────────────────────────────────\n# jobs helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef fetch_next_pending_job() -> Optional[dict]:\n    r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {\"select\": \"*\", \"status\": \"eq.pending\", \"order\": \"created_at.asc\", \"limit\": 1})",
+        "peekOfCode": "def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    r = requests.delete(url, params=params, headers=supabase_headers(json_pref=False), timeout=30)\n    r.raise_for_status()\n    return r\n# ──────────────────────────────────────────────────────────────────────────────\n# jobs helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef fetch_next_pending_job() -> Optional[dict]:\n    r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -614,7 +614,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def fetch_next_pending_job() -> Optional[dict]:\n    r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {\"select\": \"*\", \"status\": \"eq.pending\", \"order\": \"created_at.asc\", \"limit\": 1})\n    rows = r.json()\n    return rows[0] if rows else None\ndef claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n                       {\"status\": \"running\", \"started_at\": now_iso_z(), \"heartbeat_at\": now_iso_z()}, prefer_return=True)\n        rows = r.json() if r.text else []\n        return rows[0] if rows else None",
+        "peekOfCode": "def fetch_next_pending_job() -> Optional[dict]:\n    r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {\n        \"select\": \"*\",\n        \"status\": \"eq.pending\",\n        \"order\": \"created_at.asc\",\n        \"limit\": 1\n    })\n    rows = r.json()\n    return rows[0] if rows else None\ndef claim_job(job_id: str) -> Optional[dict]:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -623,7 +623,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n                       {\"status\": \"running\", \"started_at\": now_iso_z(), \"heartbeat_at\": now_iso_z()}, prefer_return=True)\n        rows = r.json() if r.text else []\n        return rows[0] if rows else None\n    except HTTPError as e:\n        print(\"❌ claim_job error:\", e, getattr(e.response, \"text\", \"\")[:400]); return None\ndef set_job_fields(job_id: str, **patch):\n    try:",
+        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n            {\"status\": \"running\", \"started_at\": now_iso_z(), \"heartbeat_at\": now_iso_z()},\n            prefer_return=True\n        )\n        rows = r.json() if r.text else []\n        return rows[0] if rows else None",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -632,7 +632,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    try:\n        http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, patch, prefer_return=False)\n    except HTTPError as e:\n        print(\"❌ set_job_fields error:\", e, \"| payload:\", patch, \"| resp:\", getattr(e.response, \"text\", \"\")[:400]); raise\ndef set_heartbeat(job_id: str):\n    try: http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, {\"heartbeat_at\": now_iso_z()})\n    except Exception: pass\ndef is_canceled(job_id: str) -> bool:\n    try:",
+        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    try:\n        http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, patch, prefer_return=False)\n    except HTTPError as e:\n        print(\"❌ set_job_fields error:\", e, \"| payload:\", patch, \"| resp:\", getattr(e.response, \"text\", \"\")[:400])\n        raise\ndef set_heartbeat(job_id: str):\n    try:\n        http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, {\"heartbeat_at\": now_iso_z()})\n    except Exception:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -641,7 +641,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def set_heartbeat(job_id: str):\n    try: http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, {\"heartbeat_at\": now_iso_z()})\n    except Exception: pass\ndef is_canceled(job_id: str) -> bool:\n    try:\n        r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {\"select\": \"status\", \"id\": f\"eq.{job_id}\", \"limit\": 1})\n        rows = r.json()\n        if not rows: return True\n        status = (rows[0].get(\"status\") or \"\").lower()\n        return status in (\"canceled\", \"failed\")",
+        "peekOfCode": "def set_heartbeat(job_id: str):\n    try:\n        http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, {\"heartbeat_at\": now_iso_z()})\n    except Exception:\n        pass\ndef is_canceled(job_id: str) -> bool:\n    try:\n        r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {\"select\": \"status\", \"id\": f\"eq.{job_id}\", \"limit\": 1})\n        rows = r.json()\n        if not rows:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -650,7 +650,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def is_canceled(job_id: str) -> bool:\n    try:\n        r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {\"select\": \"status\", \"id\": f\"eq.{job_id}\", \"limit\": 1})\n        rows = r.json()\n        if not rows: return True\n        status = (rows[0].get(\"status\") or \"\").lower()\n        return status in (\"canceled\", \"failed\")\n    except HTTPError as e:\n        print(\"⚠️ is_canceled check failed:\", e, getattr(e.response, \"text\", \"\")[:200]); return True\ndef reap_stale_jobs():",
+        "peekOfCode": "def is_canceled(job_id: str) -> bool:\n    try:\n        r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {\"select\": \"status\", \"id\": f\"eq.{job_id}\", \"limit\": 1})\n        rows = r.json()\n        if not rows:\n            return True\n        status = (rows[0].get(\"status\") or \"\").lower()\n        return status in (\"canceled\", \"failed\")\n    except HTTPError as e:\n        print(\"⚠️ is_canceled check failed:\", e, getattr(e.response, \"text\", \"\")[:200])",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -659,7 +659,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def reap_stale_jobs():\n    try:\n        cutoff = (dt.datetime.now(timezone.utc) - dt.timedelta(minutes=STALE_JOB_MINUTES)).isoformat().replace(\"+00:00\",\"Z\")\n        http_patch(f\"/rest/v1/{JOBS_TABLE}\",\n                   {\"status\": \"eq.running\", \"or\": f\"(heartbeat_at.is.null,heartbeat_at.lt.{cutoff})\"},\n                   {\"status\": \"failed\", \"finished_at\": now_iso_z(), \"last_error\": \"stale (reaped)\"})\n    except HTTPError as e:\n        print(\"⚠️ stale reaper error:\", e, getattr(e.response, \"text\", \"\")[:400])\n# ──────────────────────────────────────────────────────────────────────────────\n# archiving + sold-out helpers",
+        "peekOfCode": "def reap_stale_jobs():\n    try:\n        cutoff = (dt.datetime.now(timezone.utc) - dt.timedelta(minutes=STALE_JOB_MINUTES)).isoformat().replace(\"+00:00\",\"Z\")\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"status\": \"eq.running\", \"or\": f\"(heartbeat_at.is.null,heartbeat_at.lt.{cutoff})\"},\n            {\"status\": \"failed\", \"finished_at\": now_iso_z(), \"last_error\": \"stale (reaped)\"}\n        )\n    except HTTPError as e:\n        print(\"⚠️ stale reaper error:\", e, getattr(e.response, \"text\", \"\")[:400])",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -668,7 +668,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def archive_previous_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(f\"/rest/v1/rpc/{HISTORY_FUNC}\", {}, {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin}, upsert=False, timeout_sec=30)\n        print(f\"📦 Archived {int(r.json() or 0)} old rows for {slug} {checkin} before upsert\")\n    except HTTPError as e:\n        print(\"⚠️ archive_previous_snapshot failed:\", e, getattr(e.response, \"text\", \"\")[:400])\ndef delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(f\"/rest/v1/rpc/fn_delete_day_rows\", {}, {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin}, upsert=False, timeout_sec=30)\n        print(f\"🧹 Deleted {int(r.json() or 0)} rows for {slug} {checkin} (sold out)\")",
+        "peekOfCode": "def archive_previous_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/{HISTORY_FUNC}\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n            upsert=False, timeout_sec=30\n        )\n        print(f\"📦 Archived {int(r.json() or 0)} old rows for {slug} {checkin} before upsert\")\n    except HTTPError as e:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -677,7 +677,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(f\"/rest/v1/rpc/fn_delete_day_rows\", {}, {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin}, upsert=False, timeout_sec=30)\n        print(f\"🧹 Deleted {int(r.json() or 0)} rows for {slug} {checkin} (sold out)\")\n    except HTTPError as e:\n        print(\"⚠️ delete_current_snapshot failed:\", e, getattr(e.response, \"text\", \"\")[:400])\ndef ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:\n    try:\n        r = http_post(f\"/rest/v1/{SOLDOUT_TABLE}\", {\"on_conflict\": \"user_id,slug,checkin\"},\n                      [{\"user_id\": user_id, \"slug\": slug.lower(), \"checkin\": checkin}],",
+        "peekOfCode": "def delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/fn_delete_day_rows\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n            upsert=False, timeout_sec=30\n        )\n        print(f\"🧹 Deleted {int(r.json() or 0)} rows for {slug} {checkin} (sold out)\")\n    except HTTPError as e:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -686,7 +686,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:\n    try:\n        r = http_post(f\"/rest/v1/{SOLDOUT_TABLE}\", {\"on_conflict\": \"user_id,slug,checkin\"},\n                      [{\"user_id\": user_id, \"slug\": slug.lower(), \"checkin\": checkin}],\n                      upsert=True, prefer=\"resolution=ignore-duplicates,return=representation\")\n        rows = r.json() if r.text else []\n        return bool(rows)\n    except HTTPError as e:\n        print(\"⚠️ ensure_soldout_marker failed:\", e, getattr(e.response, \"text\", \"\")[:400]); return False\ndef clear_soldout_marker(user_id: str, slug: str, checkin: str):",
+        "peekOfCode": "def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:\n    try:\n        r = http_post(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"on_conflict\": \"user_id,slug,checkin\"},\n            [{\"user_id\": user_id, \"slug\": slug.lower(), \"checkin\": checkin}],\n            upsert=True, prefer=\"resolution=ignore-duplicates,return=representation\"\n        )\n        rows = r.json() if r.text else []\n        return bool(rows)",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -695,7 +695,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(f\"/rest/v1/{SOLDOUT_TABLE}\", {\"user_id\": f\"eq.{user_id}\", \"slug\": f\"eq.{slug.lower()}\", \"checkin\": f\"eq.{checkin}\"})\n    except HTTPError as e:\n        print(\"⚠️ clear_soldout_marker failed:\", e, getattr(e.response, \"text\", \"\")[:200])\n    except Exception as e:\n        print(\"⚠️ clear_soldout_marker error:\", e)\ndef insert_soldout_alert(user_id: str, slug: str, checkin: str):\n    payload = {\"type\": \"AUTO_SOLD_OUT\",\"user_id\": user_id,\"slug\": slug.lower(),\"checkin\": checkin,\"price\": None,\"payload\": {\"source\": \"worker_poll\",\"reason\": \"no rooms parsed for any occupancy\"}}\n    try:",
+        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"user_id\": f\"eq.{user_id}\", \"slug\": f\"eq.{slug.lower()}\", \"checkin\": f\"eq.{checkin}\"}\n        )\n    except HTTPError as e:\n        print(\"⚠️ clear_soldout_marker failed:\", e, getattr(e.response, \"text\", \"\")[:200])\n    except Exception as e:\n        print(\"⚠️ clear_soldout_marker error:\", e)",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -704,7 +704,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def insert_soldout_alert(user_id: str, slug: str, checkin: str):\n    payload = {\"type\": \"AUTO_SOLD_OUT\",\"user_id\": user_id,\"slug\": slug.lower(),\"checkin\": checkin,\"price\": None,\"payload\": {\"source\": \"worker_poll\",\"reason\": \"no rooms parsed for any occupancy\"}}\n    try:\n        http_post(f\"/rest/v1/{ALERTS_TABLE}\", {}, payload, upsert=False, timeout_sec=30)\n        print(f\"🔔 ALERT AUTO_SOLD_OUT for {slug} {checkin} (user={user_id})\")\n    except HTTPError as e:\n        print(\"⚠️ insert_soldout_alert failed:\", e, getattr(e.response, \"text\", \"\")[:400])\n# ──────────────────────────────────────────────────────────────────────────────\n# upsert to RAW (now includes flags + rate_key)\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "def insert_soldout_alert(user_id: str, slug: str, checkin: str):\n    payload = {\n        \"type\": \"AUTO_SOLD_OUT\",\n        \"user_id\": user_id,\n        \"slug\": slug.lower(),\n        \"checkin\": checkin,\n        \"price\": None,\n        \"payload\": {\n            \"source\": \"worker_poll\",\n            \"reason\": \"no rooms parsed for any occupancy\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -713,7 +713,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):\n    if not rows: return\n    clean: List[Dict[str, Any]] = []\n    for r in rows:\n        base = {\n            \"user_id\": user_id,\n            \"slug\": r.get(\"slug\"),\n            \"hotel\": r.get(\"hotel\"),\n            \"checkin\": r.get(\"checkin\"),\n            \"room\": r.get(\"room\"),",
+        "peekOfCode": "def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):\n    if not rows:\n        return\n    clean: List[Dict[str, Any]] = []\n    for r in rows:\n        base = {\n            \"user_id\": user_id,\n            \"slug\": r.get(\"slug\"),\n            \"hotel\": r.get(\"hotel\"),\n            \"checkin\": r.get(\"checkin\"),",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -722,7 +722,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def process_job(first_row: dict):\n    job_id = first_row[\"id\"]\n    claimed = claim_job(job_id)\n    if not claimed:\n        print(f\"↩️ Job {job_id} already claimed. Skip.\"); return\n    job = claimed\n    user_id = job[\"user_id\"]\n    range_days = int(job.get(\"range_days\") or 1)\n    start_date = dt.date.today()\n    job_started = dt.datetime.now(timezone.utc)",
+        "peekOfCode": "def process_job(first_row: dict):\n    job_id = first_row[\"id\"]\n    claimed = claim_job(job_id)\n    if not claimed:\n        print(f\"↩️ Job {job_id} already claimed. Skip.\")\n        return\n    job = claimed\n    user_id = job[\"user_id\"]\n    range_days = int(job.get(\"range_days\") or 1)\n    start_date = dt.date.today()",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -731,7 +731,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def main():\n    print(\"⏳ Worker online. Polling scrape_jobs...\")\n    while True:\n        try:\n            reap_stale_jobs()\n            job = fetch_next_pending_job()\n            if not job:\n                time.sleep(10); continue\n            print(\"🎯 picked job\", job.get(\"id\"))\n            process_job(job)",
+        "peekOfCode": "def main():\n    print(\"⏳ Worker online. Polling scrape_jobs...\")\n    while True:\n        try:\n            reap_stale_jobs()\n            job = fetch_next_pending_job()\n            if not job:\n                time.sleep(10)\n                continue\n            print(\"🎯 picked job\", job.get(\"id\"))",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -740,7 +740,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "MAX_WORKERS = int(os.getenv(\"MAX_WORKERS\", \"4\"))\nMAX_JOB_DURATION_SEC = int(os.getenv(\"MAX_JOB_DURATION_SEC\", \"5400\"))\nHEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# <<< CHANGED >>> use the constraint name so PostgREST can target COALESCE(rate_key,'')",
+        "peekOfCode": "MAX_WORKERS = int(os.getenv(\"MAX_WORKERS\", \"4\"))\nMAX_JOB_DURATION_SEC = int(os.getenv(\"MAX_JOB_DURATION_SEC\", \"5400\"))\nHEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Upsert key: keep the classic dedupe at (user,slug,checkin,room,occupancy)",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -749,7 +749,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "MAX_JOB_DURATION_SEC = int(os.getenv(\"MAX_JOB_DURATION_SEC\", \"5400\"))\nHEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# <<< CHANGED >>> use the constraint name so PostgREST can target COALESCE(rate_key,'')\nRAW_ON_CONFLICT = \"room_prices_raw_unique_variant\"",
+        "peekOfCode": "MAX_JOB_DURATION_SEC = int(os.getenv(\"MAX_JOB_DURATION_SEC\", \"5400\"))\nHEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Upsert key: keep the classic dedupe at (user,slug,checkin,room,occupancy)\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -758,7 +758,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "HEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# <<< CHANGED >>> use the constraint name so PostgREST can target COALESCE(rate_key,'')\nRAW_ON_CONFLICT = \"room_prices_raw_unique_variant\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"",
+        "peekOfCode": "HEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Upsert key: keep the classic dedupe at (user,slug,checkin,room,occupancy)\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# If you want to store multiple variants (e.g., NR vs FreeCancel) per room/occ:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -767,7 +767,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "STALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# <<< CHANGED >>> use the constraint name so PostgREST can target COALESCE(rate_key,'')\nRAW_ON_CONFLICT = \"room_prices_raw_unique_variant\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.",
+        "peekOfCode": "STALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Upsert key: keep the classic dedupe at (user,slug,checkin,room,occupancy)\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# If you want to store multiple variants (e.g., NR vs FreeCancel) per room/occ:\n# RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -776,7 +776,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# <<< CHANGED >>> use the constraint name so PostgREST can target COALESCE(rate_key,'')\nRAW_ON_CONFLICT = \"room_prices_raw_unique_variant\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join([",
+        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Upsert key: keep the classic dedupe at (user,slug,checkin,room,occupancy)\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# If you want to store multiple variants (e.g., NR vs FreeCancel) per room/occ:\n# RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -785,7 +785,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# <<< CHANGED >>> use the constraint name so PostgREST can target COALESCE(rate_key,'')\nRAW_ON_CONFLICT = \"room_prices_raw_unique_variant\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",",
+        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Upsert key: keep the classic dedupe at (user,slug,checkin,room,occupancy)\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# If you want to store multiple variants (e.g., NR vs FreeCancel) per room/occ:\n# RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# Allow all fields we may send; optional fields are accessed with .get()",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -794,7 +794,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "HISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# <<< CHANGED >>> use the constraint name so PostgREST can target COALESCE(rate_key,'')\nRAW_ON_CONFLICT = \"room_prices_raw_unique_variant\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",",
+        "peekOfCode": "HISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Upsert key: keep the classic dedupe at (user,slug,checkin,room,occupancy)\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# If you want to store multiple variants (e.g., NR vs FreeCancel) per room/occ:\n# RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# Allow all fields we may send; optional fields are accessed with .get()\n_raw_allowed_default = \",\".join([",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -803,7 +803,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "SOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# <<< CHANGED >>> use the constraint name so PostgREST can target COALESCE(rate_key,'')\nRAW_ON_CONFLICT = \"room_prices_raw_unique_variant\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",",
+        "peekOfCode": "SOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Upsert key: keep the classic dedupe at (user,slug,checkin,room,occupancy)\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# If you want to store multiple variants (e.g., NR vs FreeCancel) per room/occ:\n# RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# Allow all fields we may send; optional fields are accessed with .get()\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -812,7 +812,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "ALERTS_TABLE = \"alert_events\"\n# <<< CHANGED >>> use the constraint name so PostgREST can target COALESCE(rate_key,'')\nRAW_ON_CONFLICT = \"room_prices_raw_unique_variant\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",  # <<< ADDED >>>",
+        "peekOfCode": "ALERTS_TABLE = \"alert_events\"\n# Upsert key: keep the classic dedupe at (user,slug,checkin,room,occupancy)\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# If you want to store multiple variants (e.g., NR vs FreeCancel) per room/occ:\n# RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# Allow all fields we may send; optional fields are accessed with .get()\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -821,7 +821,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_ON_CONFLICT = \"room_prices_raw_unique_variant\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",  # <<< ADDED >>>\n])\nRAW_ALLOWED_KEYS = {",
+        "peekOfCode": "RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\n# If you want to store multiple variants (e.g., NR vs FreeCancel) per room/occ:\n# RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# Allow all fields we may send; optional fields are accessed with .get()\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\"  # optional; never required",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -830,7 +830,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",  # <<< ADDED >>>\n])\nRAW_ALLOWED_KEYS = {\n    k.strip()",
+        "peekOfCode": "RAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# Allow all fields we may send; optional fields are accessed with .get()\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\"  # optional; never required\n])\nRAW_ALLOWED_KEYS = {\n    k.strip()",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -839,7 +839,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",  # <<< ADDED >>>\n])\nRAW_ALLOWED_KEYS = {\n    k.strip()\n    for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\")\n    if k.strip()",
+        "peekOfCode": "_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\"  # optional; never required\n])\nRAW_ALLOWED_KEYS = {\n    k.strip()\n    for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\")\n    if k.strip()",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -848,7 +848,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_ALLOWED_KEYS = {\n    k.strip()\n    for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\")\n    if k.strip()\n}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")\n# ──────────────────────────────────────────────────────────────────────────────\n# HTTP helpers\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "RAW_ALLOWED_KEYS = {\n    k.strip()\n    for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\")\n    if k.strip()\n}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")\n# ──────────────────────────────────────────────────────────────────────────────\n# HTTP helpers (PostgREST)\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -857,7 +857,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    slug = (hotel.get(\"slug\") or \"\").lower()\n    try:\n        cc = hotel.get(\"cc\") or (resolve_cc_for_slug(slug) if RESOLVE_CC_IF_MISSING else None) or DEFAULT_CC\n        raw_rows = scrape_hotel_for_dates(hotel[\"name\"], slug, cc, checkin, checkout, should_cancel=lambda: is_canceled(job_id))\n        deduped = dedupe_min_per_room_and_occupancy(raw_rows)\n        for r in deduped:\n            if not r.get(\"hotel\"): r[\"hotel\"] = hotel[\"name\"]\n            r[\"user_id\"] = user_id",
+        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    slug = (hotel.get(\"slug\") or \"\").lower()\n    try:\n        cc = hotel.get(\"cc\") or (resolve_cc_for_slug(slug) if RESOLVE_CC_IF_MISSING else None) or DEFAULT_CC\n        raw_rows = scrape_hotel_for_dates(hotel[\"name\"], slug, cc, checkin, checkout, should_cancel=lambda: is_canceled(job_id))\n        deduped = dedupe_min_per_room_and_occupancy(raw_rows)\n        for r in deduped:\n            if not r.get(\"hotel\"):\n                r[\"hotel\"] = hotel[\"name\"]",
         "detail": "worker_poll",
         "documentation": {}
     }
