@@ -1,9 +1,10 @@
 # worker_poll.py
 # ──────────────────────────────────────────────────────────────────────────────
 # Background worker:
-#  - Upserts min-per-(room,occ) with parsed rate flags
-#  - Sold-out handling, archiving, alerts (unchanged from your hardened version)
+#  - Upserts min-per-(room,occ,variant) with parsed rate flags  # <<< CHANGED >>>
+#  - Sold-out handling, archiving, alerts
 #  - RAW_ALLOWED_KEYS gate controls which fields get sent
+#  - Uses constraint name for ON CONFLICT to support COALESCE(rate_key,'')  # <<< ADDED >>>
 # ──────────────────────────────────────────────────────────────────────────────
 
 import os
@@ -40,7 +41,9 @@ RAW_TABLE = "room_prices_raw"
 HISTORY_FUNC = "fn_archive_day_rows"
 SOLDOUT_TABLE = "soldout_markers"
 ALERTS_TABLE = "alert_events"
-RAW_ON_CONFLICT = "user_id,slug,checkin,room,occupancy"
+
+# <<< CHANGED >>> use the constraint name so PostgREST can target COALESCE(rate_key,'')
+RAW_ON_CONFLICT = "room_prices_raw_unique_variant"
 
 RAW_INCLUDE_JOB_ID = os.getenv("RAW_INCLUDE_JOB_ID", "0") == "1"
 
@@ -49,6 +52,7 @@ _raw_allowed_default = ",".join([
     "user_id","slug","checkin","room","occupancy","price","hotel","job_id",
     "breakfast_included","dinner_included","half_board",
     "free_cancellation","nonrefundable","prepay_required","rate_plan",
+    "rate_key",  # <<< ADDED >>>
 ])
 RAW_ALLOWED_KEYS = {
     k.strip()
@@ -95,7 +99,7 @@ def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:
     return r
 
 # ──────────────────────────────────────────────────────────────────────────────
-# jobs helpers (same as your hardened version)
+# jobs helpers
 # ──────────────────────────────────────────────────────────────────────────────
 def fetch_next_pending_job() -> Optional[dict]:
     r = http_get(f"/rest/v1/{JOBS_TABLE}", {"select": "*", "status": "eq.pending", "order": "created_at.asc", "limit": 1})
@@ -141,7 +145,7 @@ def reap_stale_jobs():
         print("⚠️ stale reaper error:", e, getattr(e.response, "text", "")[:400])
 
 # ──────────────────────────────────────────────────────────────────────────────
-# archiving + sold-out helpers (unchanged)
+# archiving + sold-out helpers
 # ──────────────────────────────────────────────────────────────────────────────
 def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
     try:
@@ -184,7 +188,7 @@ def insert_soldout_alert(user_id: str, slug: str, checkin: str):
         print("⚠️ insert_soldout_alert failed:", e, getattr(e.response, "text", "")[:400])
 
 # ──────────────────────────────────────────────────────────────────────────────
-# upsert to RAW (now includes flags)
+# upsert to RAW (now includes flags + rate_key)
 # ──────────────────────────────────────────────────────────────────────────────
 def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     out: Dict[str, Any] = {}
@@ -202,6 +206,8 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if "price" in out:
         try: out["price"] = float(out["price"])
         except Exception: out["price"] = None
+    if "rate_key" in out and out["rate_key"] is None:
+        out["rate_key"] = ""  # <<< ADDED >>> keep empty string to match constraint
 
     required_keys = ("user_id", "slug", "checkin", "room", "occupancy")
     for rk in required_keys:
@@ -222,7 +228,6 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
             "room": r.get("room"),
             "occupancy": r.get("occupancy"),
             "price": r.get("price"),
-            # NEW flags:
             "breakfast_included": r.get("breakfast_included"),
             "dinner_included": r.get("dinner_included"),
             "half_board": r.get("half_board"),
@@ -230,6 +235,7 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
             "nonrefundable": r.get("nonrefundable"),
             "prepay_required": r.get("prepay_required"),
             "rate_plan": r.get("rate_plan"),
+            "rate_key": r.get("rate_key") or "",  # <<< ADDED >>>
         }
         if RAW_INCLUDE_JOB_ID:
             base["job_id"] = job_id
@@ -240,7 +246,7 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
     # Avoid ON CONFLICT "row affected twice" by de-duplicating inside the batch
     uniq = {}
     for r in clean:
-        key = (r["user_id"], r["slug"], r["checkin"], r["room"], r["occupancy"])
+        key = (r["user_id"], r["slug"], r["checkin"], r["room"], r["occupancy"], r["rate_key"])  # <<< CHANGED >>>
         if key not in uniq:
             uniq[key] = r
         else:
@@ -252,7 +258,13 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
     for i in range(0, len(clean), 300):
         batch = clean[i : i + 300]
         try:
-            http_post(f"/rest/v1/{RAW_TABLE}", {"on_conflict": RAW_ON_CONFLICT}, batch, upsert=True, timeout_sec=60)
+            http_post(
+                f"/rest/v1/{RAW_TABLE}",
+                {"on_conflict": RAW_ON_CONFLICT},  # <<< CHANGED >>>
+                batch,
+                upsert=True,
+                timeout_sec=60
+            )
             print(f"✅ Upserted {len(batch)} rows into room_prices_raw")
         except HTTPError as e:
             print("❌ upsert_room_prices error:", e, getattr(e.response, "text", "")[:400])
@@ -279,7 +291,7 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
         return {"slug": slug, "checkin": checkin, "rows": []}
 
 # ──────────────────────────────────────────────────────────────────────────────
-# job processing (shortened — same logic you already run)
+# job processing (unchanged except for data path)
 # ──────────────────────────────────────────────────────────────────────────────
 def process_job(first_row: dict):
     job_id = first_row["id"]

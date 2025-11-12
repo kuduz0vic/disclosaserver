@@ -8,6 +8,7 @@
 #       free_cancellation, nonrefundable, prepay_required,
 #       rate_plan (simple text tag)
 #  - Helpers for Supabase.
+#  - Variant-aware via rate_key  # <<< ADDED >>>
 # ──────────────────────────────────────────────────────────────────────────────
 
 import os
@@ -292,7 +293,6 @@ def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:
         flags["free_cancellation"] = True
     if "non-refundable" in t or "non refundable" in t or "total cost to cancel" in t:
         flags["nonrefundable"] = True
-        # If it's explicitly non-refundable, free_cancellation is False
         flags["free_cancellation"] = False if flags["free_cancellation"] is None else flags["free_cancellation"]
 
     # Prepayment
@@ -301,7 +301,7 @@ def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:
     if "prepayment" in t and ("required" in t or "will be charged" in t):
         flags["prepay_required"] = True
 
-    # A simple textual tag we can show (best-effort)
+    # Simple textual tag
     if flags["nonrefundable"]:
         if flags["breakfast_included"]:
             flags["rate_plan"] = "NRF w/ breakfast"
@@ -319,7 +319,7 @@ def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:
     else:
         flags["rate_plan"] = None
 
-    # Also check specific policy nodes (if present)
+    # Explicit policies
     try:
         canc = row.query_selector("[data-testid='cancellation-policy']")
         if canc:
@@ -344,6 +344,23 @@ def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:
         pass
 
     return flags
+
+# <<< ADDED >>> stable rate_key builder
+def build_rate_key(flags: dict) -> str:
+    """
+    Stable fingerprint for a rate variant (ternary state so unknowns don't collide).
+    Order matters—keep it consistent with DB consumers.
+    """
+    def tri(v, t):
+        return f"{t}1" if v is True else (f"{t}0" if v is False else f"{t}?")
+    return "|".join([
+        tri(flags.get("breakfast_included"), "b"),
+        tri(flags.get("free_cancellation"), "rc"),
+        tri(flags.get("nonrefundable"), "nrf"),
+        tri(flags.get("prepay_required"), "pp"),
+        tri(flags.get("dinner_included"), "din"),
+        tri(flags.get("half_board"), "hb"),
+    ])
 
 def extract_price_with_context(price_el) -> (Optional[float], Optional[int]):
     price = None
@@ -393,6 +410,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                 accepted_any = False
 
                 attrs = parse_rate_attributes_from_row(row)
+                rate_key = build_rate_key(attrs)  # <<< ADDED >>>
 
                 for td in row.query_selector_all("td,div,section"):
                     for psel in PRICE_SELECTORS:
@@ -423,6 +441,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                                 "nonrefundable": attrs["nonrefundable"],
                                 "prepay_required": attrs["prepay_required"],
                                 "rate_plan": attrs["rate_plan"],
+                                "rate_key": rate_key,  # <<< ADDED >>>
                             })
                             accepted_any = True
 
@@ -442,6 +461,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                                 break
                         if first_price is not None:
                             attrs = parse_rate_attributes_from_row(row)
+                            rate_key = build_rate_key(attrs)  # <<< ADDED >>>
                             results.append({
                                 "room": re.sub(r"\s+", " ", room_name),
                                 "price": first_price,
@@ -453,6 +473,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                                 "nonrefundable": attrs["nonrefundable"],
                                 "prepay_required": attrs["prepay_required"],
                                 "rate_plan": attrs["rate_plan"],
+                                "rate_key": rate_key,  # <<< ADDED >>>
                             })
 
             except Exception:
@@ -511,10 +532,8 @@ def scrape_hotel_for_dates(
             user_agent=USER_AGENT,
             extra_http_headers={"Accept-Language": "en-GB,en;q=0.9"},
         )
-        # Prefer English for JS runtime too
         context.add_init_script("""Object.defineProperty(navigator, 'language', {get: ()=>'en-GB'}); Object.defineProperty(navigator, 'languages', {get: ()=>['en-GB','en']});""")
 
-        # Block heavy resources
         context.route(
             "**/*",
             lambda route: route.abort()
@@ -542,7 +561,6 @@ def scrape_hotel_for_dates(
                 aggressively_expand_and_scroll(page, should_cancel=should_cancel)
                 if cancelled(): break
 
-                # wait for table/rows
                 try:
                     page.wait_for_selector(",".join(ROOM_TABLE_SELECTORS), timeout=WAIT_TABLE_TIMEOUT_MS)
                 except TimeoutError:
@@ -565,6 +583,7 @@ def scrape_hotel_for_dates(
                         "nonrefundable": r.get("nonrefundable"),
                         "prepay_required": r.get("prepay_required"),
                         "rate_plan": r.get("rate_plan"),
+                        "rate_key": r.get("rate_key"),  # <<< ADDED >>>
                     })
 
             except Exception as e:
@@ -575,13 +594,15 @@ def scrape_hotel_for_dates(
     return out
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Post-processing: keep min per (slug, checkin, room, occupancy)
+# Post-processing: keep min per (slug, checkin, room, occupancy, rate_key)
 # ──────────────────────────────────────────────────────────────────────────────
 def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:
+    # <<< CHANGED >>> include rate_key in the key so variants are preserved
     best: Dict[tuple, dict] = {}
     for r in rows:
         slug_lower = (r["slug"] or "").lower()
-        key = (slug_lower, r["checkin"], r["room"], int(r["occupancy"]))
+        rate_key = r.get("rate_key") or ""
+        key = (slug_lower, r["checkin"], r["room"], int(r["occupancy"]), rate_key)
         price = r["price"]
         if price is None:
             continue
@@ -600,5 +621,6 @@ def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:
                 "nonrefundable": r.get("nonrefundable"),
                 "prepay_required": r.get("prepay_required"),
                 "rate_plan": r.get("rate_plan"),
+                "rate_key": rate_key,  # <<< ADDED >>>
             }
     return list(best.values())
