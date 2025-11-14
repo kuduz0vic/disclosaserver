@@ -718,6 +718,15 @@
         "documentation": {}
     },
     {
+        "label": "clear_soldout_marker",
+        "kind": 2,
+        "importPath": "worker_poll",
+        "description": "worker_poll",
+        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\n                \"user_id\": f\"eq.{user_id}\",\n                \"slug\": f\"eq.{slug.lower()}\",\n                \"checkin\": f\"eq.{checkin}\",\n            },\n        )",
+        "detail": "worker_poll",
+        "documentation": {}
+    },
+    {
         "label": "process_job",
         "kind": 2,
         "importPath": "worker_poll",

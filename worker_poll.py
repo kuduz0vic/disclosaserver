@@ -296,6 +296,22 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
     except Exception as e:
         print("⚠️ scrape task error:", e)
         return {"slug": slug, "checkin": checkin, "rows": []}
+    
+def clear_soldout_marker(user_id: str, slug: str, checkin: str):
+    try:
+        http_delete(
+            f"/rest/v1/{SOLDOUT_TABLE}",
+            {
+                "user_id": f"eq.{user_id}",
+                "slug": f"eq.{slug.lower()}",
+                "checkin": f"eq.{checkin}",
+            },
+        )
+        print(f"🧽 Cleared sold-out marker for {slug} {checkin}")
+    except HTTPError as e:
+        print("⚠️ clear_soldout_marker failed:", e, getattr(e.response, "text", "")[:400])
+    except Exception as e:
+        print("⚠️ clear_soldout_marker error:", e)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # main job loop
