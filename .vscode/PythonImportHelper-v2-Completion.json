@@ -389,7 +389,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:\n    \"\"\"\n    Look into the conditions cell + policy snippets inside the row and extract flags.\n    Returns booleans or None.\n    \"\"\"\n    flags = {\n        \"breakfast_included\": None,\n        \"dinner_included\": None,\n        \"half_board\": None,\n        \"free_cancellation\": None,",
+        "peekOfCode": "def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:\n    \"\"\"\n    Look into the conditions / meal-plan cells + policy snippets inside the row\n    and extract flags. Returns booleans or None.\n    \"\"\"\n    flags = {\n        \"breakfast_included\": None,\n        \"dinner_included\": None,\n        \"half_board\": None,\n        \"free_cancellation\": None,",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -443,7 +443,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:\n    # <<< CHANGED >>> include rate_key in the key so variants are preserved\n    best: Dict[tuple, dict] = {}\n    for r in rows:\n        slug_lower = (r[\"slug\"] or \"\").lower()\n        rate_key = r.get(\"rate_key\") or \"\"\n        key = (slug_lower, r[\"checkin\"], r[\"room\"], int(r[\"occupancy\"]), rate_key)\n        price = r[\"price\"]\n        if price is None:\n            continue",
+        "peekOfCode": "def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:\n    best: Dict[tuple, dict] = {}\n    for r in rows:\n        slug_lower = (r[\"slug\"] or \"\").lower()\n        rate_key = r.get(\"rate_key\") or \"\"\n        key = (slug_lower, r[\"checkin\"], r[\"room\"], int(r[\"occupancy\"]), rate_key)\n        price = r[\"price\"]\n        if price is None:\n            continue\n        if key not in best or price < best[key][\"price\"]:",
         "detail": "scraper_core",
         "documentation": {}
     },

@@ -3,12 +3,12 @@
 # Shared scraper/core:
 #  - English-only rendering (locale + Accept-Language)
 #  - Occupancy-aware scrape (adults 1..4)
-#  - Extract rate attributes from the "conditions" cell:
+#  - Extract rate attributes from the "conditions" / "meal-plan" cells:
 #       breakfast_included, dinner_included, half_board,
 #       free_cancellation, nonrefundable, prepay_required,
 #       rate_plan (simple text tag)
 #  - Helpers for Supabase.
-#  - Variant-aware via rate_key  # <<< ADDED >>>
+#  - Variant-aware via rate_key
 # ──────────────────────────────────────────────────────────────────────────────
 
 import os
@@ -250,12 +250,12 @@ def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, a
     return f"{base}?{urlencode(qs)}"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Attribute parsing (English only)
+# Attribute parsing (English only) – IMPROVED MEAL / DINNER DETECTION
 # ──────────────────────────────────────────────────────────────────────────────
 def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:
     """
-    Look into the conditions cell + policy snippets inside the row and extract flags.
-    Returns booleans or None.
+    Look into the conditions / meal-plan cells + policy snippets inside the row
+    and extract flags. Returns booleans or None.
     """
     flags = {
         "breakfast_included": None,
@@ -267,68 +267,139 @@ def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:
         "rate_plan": None,
     }
 
-    # Try “conditions” cell text
-    cond_el = row.query_selector("td.hprt-table-cell-conditions, [data-testid='room-row'] td:has([data-testid*='policy'])")
+    # Collect text from:
+    #  - "conditions" cell
+    #  - explicit meal-plan cell
+    #  - fallback: whole row text
     blob = ""
     try:
-        blob = (cond_el.inner_text() if cond_el else "") or ""
+        cond_el = row.query_selector(
+            "td.hprt-table-cell-conditions, "
+            "[data-testid='room-row'] td:has([data-testid*='policy'])"
+        )
+        meal_el = row.query_selector("[data-testid*='meal-plan']")
+        parts: List[str] = []
+        if cond_el:
+            try:
+                parts.append(cond_el.inner_text() or "")
+            except Exception:
+                pass
+        if meal_el:
+            try:
+                parts.append(meal_el.inner_text() or "")
+            except Exception:
+                pass
+        if not parts:
+            try:
+                parts.append(row.inner_text() or "")
+            except Exception:
+                pass
+        blob = " ".join(parts)
     except Exception:
         blob = ""
 
     t = " ".join(blob.split()).lower()
 
-    # Meals
-    if "breakfast included" in t or re.search(r"\bwith breakfast\b", t):
+    # ── Meals ────────────────────────────────────────────────────────────────
+    # Breakfast
+    if re.search(r"\bbreakfast included\b", t) or re.search(r"\bwith breakfast\b", t) or re.search(r"\bincludes breakfast\b", t):
         flags["breakfast_included"] = True
-    elif "breakfast" in t and ("not included" in t or "extra charge" in t):
+    elif "breakfast" in t and any(
+        kw in t for kw in ["not included", "extra charge", "surcharge", "additional charge", "for an extra fee"]
+    ):
         flags["breakfast_included"] = False
 
-    if "dinner included" in t:
+    # Dinner + breakfast & dinner combos
+    if "dinner included" in t or "includes dinner" in t or "with dinner" in t or "evening meal included" in t:
         flags["dinner_included"] = True
-    if "half board is included" in t or "half board included" in t:
+
+    # E.g. "Breakfast & dinner included", "includes breakfast and dinner"
+    if re.search(r"\bbreakfast\b.*\bdinner\b", t) or re.search(r"\bdinner\b.*\bbreakfast\b", t):
+        flags["dinner_included"] = True
+        if flags["breakfast_included"] is None:
+            flags["breakfast_included"] = True
+
+    # Half board (HB) → implies breakfast + dinner
+    if re.search(r"\bhalf[-\s]?board\b", t) or re.search(r"\bhb\b", t):
         flags["half_board"] = True
+        if flags["dinner_included"] is None:
+            flags["dinner_included"] = True
+        if flags["breakfast_included"] is None:
+            flags["breakfast_included"] = True
 
-    # Cancellation
-    if "free cancellation" in t:
+    # All inclusive – treat as at least breakfast + dinner
+    if re.search(r"\ball[-\s]?inclusive\b", t):
+        if flags["breakfast_included"] is None:
+            flags["breakfast_included"] = True
+        if flags["dinner_included"] is None:
+            flags["dinner_included"] = True
+
+    # ── Cancellation ────────────────────────────────────────────────────────
+    if "free cancellation" in t or "fully refundable" in t or "free to cancel" in t:
         flags["free_cancellation"] = True
-    if "non-refundable" in t or "non refundable" in t or "total cost to cancel" in t:
-        flags["nonrefundable"] = True
-        flags["free_cancellation"] = False if flags["free_cancellation"] is None else flags["free_cancellation"]
 
-    # Prepayment
-    if "no prepayment needed" in t or "pay at the property" in t:
+    if (
+        "non-refundable" in t
+        or "non refundable" in t
+        or "no refund" in t
+        or "no refunds" in t
+        or "total cost to cancel" in t
+        or "nonref" in t
+    ):
+        flags["nonrefundable"] = True
+        if flags["free_cancellation"] is None:
+            flags["free_cancellation"] = False
+
+    # ── Prepayment ─────────────────────────────────────────────────────────
+    if "no prepayment needed" in t or "pay at the property" in t or "pay at property" in t or "pay later" in t:
         flags["prepay_required"] = False
-    if "prepayment" in t and ("required" in t or "will be charged" in t):
+
+    if (
+        "prepayment" in t and ("required" in t or "will be charged" in t)
+    ) or "prepay in advance" in t or "prepaid" in t or "pay now" in t:
         flags["prepay_required"] = True
 
-    # Simple textual tag
+    # ── Simple textual tag (rate_plan) ──────────────────────────────────────
     if flags["nonrefundable"]:
-        if flags["breakfast_included"]:
+        if flags["breakfast_included"] and flags["dinner_included"]:
+            flags["rate_plan"] = "NRF half board"
+        elif flags["breakfast_included"]:
             flags["rate_plan"] = "NRF w/ breakfast"
+        elif flags["dinner_included"]:
+            flags["rate_plan"] = "NRF w/ dinner"
         else:
             flags["rate_plan"] = "Non-refundable"
     elif flags["free_cancellation"]:
-        if flags["breakfast_included"]:
+        if flags["breakfast_included"] and flags["dinner_included"]:
+            flags["rate_plan"] = "Free cancel + half board"
+        elif flags["breakfast_included"]:
             flags["rate_plan"] = "Free cancel + breakfast"
+        elif flags["dinner_included"]:
+            flags["rate_plan"] = "Free cancel + dinner"
         else:
             flags["rate_plan"] = "Free cancellation"
     elif flags["half_board"] or flags["dinner_included"]:
-        flags["rate_plan"] = "Half board"
+        flags["rate_plan"] = "Half board" if flags["half_board"] else "Dinner"
     elif flags["breakfast_included"]:
         flags["rate_plan"] = "Breakfast"
     else:
         flags["rate_plan"] = None
 
-    # Explicit policies
+    # ── Explicit policy blocks (if present) override/confirm ───────────────
     try:
         canc = row.query_selector("[data-testid='cancellation-policy']")
         if canc:
             ctext = (canc.inner_text() or "").lower()
-            if "free cancellation" in ctext:
+            if "free cancellation" in ctext or "fully refundable" in ctext:
                 flags["free_cancellation"] = True
-            if "non-refundable" in ctext or "total cost to cancel" in ctext:
+            if (
+                "non-refundable" in ctext
+                or "non refundable" in ctext
+                or "total cost to cancel" in ctext
+            ):
                 flags["nonrefundable"] = True
-                flags["free_cancellation"] = False if flags["free_cancellation"] is None else flags["free_cancellation"]
+                if flags["free_cancellation"] is None:
+                    flags["free_cancellation"] = False
     except Exception:
         pass
 
@@ -336,16 +407,25 @@ def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:
         pre = row.query_selector("[data-testid='prepayment-policy']")
         if pre:
             ptext = (pre.inner_text() or "").lower()
-            if "no prepayment needed" in ptext or "pay at the property" in ptext:
+            if (
+                "no prepayment needed" in ptext
+                or "pay at the property" in ptext
+                or "pay at property" in ptext
+                or "pay later" in ptext
+            ):
                 flags["prepay_required"] = False
-            if ("prepayment" in ptext and "required" in ptext) or "will be charged" in ptext:
+            if (
+                ("prepayment" in ptext and "required" in ptext)
+                or "will be charged" in ptext
+                or "prepaid" in ptext
+            ):
                 flags["prepay_required"] = True
     except Exception:
         pass
 
     return flags
 
-# <<< ADDED >>> stable rate_key builder
+# stable rate_key builder
 def build_rate_key(flags: dict) -> str:
     """
     Stable fingerprint for a rate variant (ternary state so unknowns don't collide).
@@ -410,7 +490,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                 accepted_any = False
 
                 attrs = parse_rate_attributes_from_row(row)
-                rate_key = build_rate_key(attrs)  # <<< ADDED >>>
+                rate_key = build_rate_key(attrs)
 
                 for td in row.query_selector_all("td,div,section"):
                     for psel in PRICE_SELECTORS:
@@ -441,7 +521,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                                 "nonrefundable": attrs["nonrefundable"],
                                 "prepay_required": attrs["prepay_required"],
                                 "rate_plan": attrs["rate_plan"],
-                                "rate_key": rate_key,  # <<< ADDED >>>
+                                "rate_key": rate_key,
                             })
                             accepted_any = True
 
@@ -461,7 +541,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                                 break
                         if first_price is not None:
                             attrs = parse_rate_attributes_from_row(row)
-                            rate_key = build_rate_key(attrs)  # <<< ADDED >>>
+                            rate_key = build_rate_key(attrs)
                             results.append({
                                 "room": re.sub(r"\s+", " ", room_name),
                                 "price": first_price,
@@ -473,7 +553,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                                 "nonrefundable": attrs["nonrefundable"],
                                 "prepay_required": attrs["prepay_required"],
                                 "rate_plan": attrs["rate_plan"],
-                                "rate_key": rate_key,  # <<< ADDED >>>
+                                "rate_key": rate_key,
                             })
 
             except Exception:
@@ -583,7 +663,7 @@ def scrape_hotel_for_dates(
                         "nonrefundable": r.get("nonrefundable"),
                         "prepay_required": r.get("prepay_required"),
                         "rate_plan": r.get("rate_plan"),
-                        "rate_key": r.get("rate_key"),  # <<< ADDED >>>
+                        "rate_key": r.get("rate_key"),
                     })
 
             except Exception as e:
@@ -597,7 +677,6 @@ def scrape_hotel_for_dates(
 # Post-processing: keep min per (slug, checkin, room, occupancy, rate_key)
 # ──────────────────────────────────────────────────────────────────────────────
 def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:
-    # <<< CHANGED >>> include rate_key in the key so variants are preserved
     best: Dict[tuple, dict] = {}
     for r in rows:
         slug_lower = (r["slug"] or "").lower()
