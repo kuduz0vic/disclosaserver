@@ -10,7 +10,7 @@ from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 from supabase import create_client, Client
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 POLL_INTERVAL_SEC = 2.0
 MAX_DAYS_DEFAULT = 7
