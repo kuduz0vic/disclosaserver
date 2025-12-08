@@ -1,142 +1,20 @@
 [
     {
-        "label": "os",
+        "label": "asyncio",
         "kind": 6,
         "isExtraImport": true,
-        "importPath": "os",
-        "description": "os",
-        "detail": "os",
+        "importPath": "asyncio",
+        "description": "asyncio",
+        "detail": "asyncio",
         "documentation": {}
     },
     {
-        "label": "re",
+        "label": "contextlib",
         "kind": 6,
         "isExtraImport": true,
-        "importPath": "re",
-        "description": "re",
-        "detail": "re",
-        "documentation": {}
-    },
-    {
-        "label": "Any",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Callable",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Dict",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "List",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Optional",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Optional",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Dict",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "Any",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "List",
-        "importPath": "typing",
-        "description": "typing",
-        "isExtraImport": true,
-        "detail": "typing",
-        "documentation": {}
-    },
-    {
-        "label": "requests",
-        "kind": 6,
-        "isExtraImport": true,
-        "importPath": "requests",
-        "description": "requests",
-        "detail": "requests",
-        "documentation": {}
-    },
-    {
-        "label": "HTTPError",
-        "importPath": "requests",
-        "description": "requests",
-        "isExtraImport": true,
-        "detail": "requests",
-        "documentation": {}
-    },
-    {
-        "label": "HTTPError",
-        "importPath": "requests",
-        "description": "requests",
-        "isExtraImport": true,
-        "detail": "requests",
-        "documentation": {}
-    },
-    {
-        "label": "sync_playwright",
-        "importPath": "playwright.sync_api",
-        "description": "playwright.sync_api",
-        "isExtraImport": true,
-        "detail": "playwright.sync_api",
-        "documentation": {}
-    },
-    {
-        "label": "TimeoutError",
-        "importPath": "playwright.sync_api",
-        "description": "playwright.sync_api",
-        "isExtraImport": true,
-        "detail": "playwright.sync_api",
-        "documentation": {}
-    },
-    {
-        "label": "time",
-        "kind": 6,
-        "isExtraImport": true,
-        "importPath": "time",
-        "description": "time",
-        "detail": "time",
+        "importPath": "contextlib",
+        "description": "contextlib",
+        "detail": "contextlib",
         "documentation": {}
     },
     {
@@ -149,40 +27,155 @@
         "documentation": {}
     },
     {
-        "label": "timezone",
-        "importPath": "datetime",
-        "description": "datetime",
-        "isExtraImport": true,
-        "detail": "datetime",
-        "documentation": {}
-    },
-    {
-        "label": "ThreadPoolExecutor",
-        "importPath": "concurrent.futures",
-        "description": "concurrent.futures",
-        "isExtraImport": true,
-        "detail": "concurrent.futures",
-        "documentation": {}
-    },
-    {
-        "label": "as_completed",
-        "importPath": "concurrent.futures",
-        "description": "concurrent.futures",
-        "isExtraImport": true,
-        "detail": "concurrent.futures",
-        "documentation": {}
-    },
-    {
-        "label": "threading",
+        "label": "json",
         "kind": 6,
         "isExtraImport": true,
-        "importPath": "threading",
-        "description": "threading",
-        "detail": "threading",
+        "importPath": "json",
+        "description": "json",
+        "detail": "json",
         "documentation": {}
     },
     {
-        "label": "SUPABASE_URL",
+        "label": "logging",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "logging",
+        "description": "logging",
+        "detail": "logging",
+        "documentation": {}
+    },
+    {
+        "label": "os",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "os",
+        "description": "os",
+        "detail": "os",
+        "documentation": {}
+    },
+    {
+        "label": "dataclass",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
+        "label": "asdict",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Optional",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Optional",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "httpx",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "httpx",
+        "description": "httpx",
+        "detail": "httpx",
+        "documentation": {}
+    },
+    {
+        "label": "async_playwright",
+        "importPath": "playwright.async_api",
+        "description": "playwright.async_api",
+        "isExtraImport": true,
+        "detail": "playwright.async_api",
+        "documentation": {}
+    },
+    {
+        "label": "Browser",
+        "importPath": "playwright.async_api",
+        "description": "playwright.async_api",
+        "isExtraImport": true,
+        "detail": "playwright.async_api",
+        "documentation": {}
+    },
+    {
+        "label": "Page",
+        "importPath": "playwright.async_api",
+        "description": "playwright.async_api",
+        "isExtraImport": true,
+        "detail": "playwright.async_api",
+        "documentation": {}
+    },
+    {
+        "label": "ScraperCore",
         "importPath": "scraper_core",
         "description": "scraper_core",
         "isExtraImport": true,
@@ -190,497 +183,47 @@
         "documentation": {}
     },
     {
-        "label": "SUPABASE_KEY",
+        "label": "RoomPriceRow",
+        "kind": 6,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "isExtraImport": true,
+        "peekOfCode": "class RoomPriceRow:\n    user_id: str\n    slug: str\n    checkin: dt.date\n    occupancy: int\n    room_name: str\n    price: Optional[float]\n    breakfast_included: Optional[bool] = None\n    dinner_included: Optional[bool] = None\n    half_board: Optional[bool] = None",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "supabase_headers",
+        "label": "ScraperCore",
+        "kind": 6,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "isExtraImport": true,
+        "peekOfCode": "class ScraperCore:\n    \"\"\"\n    Core booking.com scraper.\n    - Uses Playwright\n    - Always uses group_adults=4 to see full room capacity\n    - Writes rows to Supabase room_prices_raw\n    \"\"\"\n    def __init__(\n        self,\n        supabase_url: str,",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "get_own_hotel",
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "isExtraImport": true,
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "get_competitor_hotels",
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "isExtraImport": true,
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "resolve_cc_for_slug",
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "isExtraImport": true,
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "RESOLVE_CC_IF_MISSING",
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "isExtraImport": true,
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "DEFAULT_CC",
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "isExtraImport": true,
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "scrape_hotel_for_dates",
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "isExtraImport": true,
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "dedupe_min_per_room_and_occupancy",
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "isExtraImport": true,
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "supabase_headers",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h: Dict[str, str] = {\n        \"apikey\": SUPABASE_KEY,\n        \"Authorization\": f\"Bearer {SUPABASE_KEY}\",\n    }\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"\n    if upsert:\n        # caller can still override Prefer manually when needed",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "booking_slug_from_url",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def booking_slug_from_url(url: str) -> str:\n    \"\"\"\n    Turn a full Booking.com URL into a canonical slug used by the scraper,\n    e.g. https://www.booking.com/hotel/si/nox.html?anything -> \"hotel/si/nox\"\n    \"\"\"\n    try:\n        if \"booking.com/\" in url:\n            url = url.split(\"booking.com/\", 1)[1]\n        url = url.split(\"?\", 1)[0]\n        url = url.strip(\"/\")",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "infer_cc_from_slug",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def infer_cc_from_slug(slug: str) -> Optional[str]:\n    slug = (slug or \"\").strip().lower()\n    parts = slug.split(\"/\")\n    # typical: \"hotel/si/nox\" -> \"si\"\n    if len(parts) >= 3 and len(parts[1]) == 2:\n        return parts[1]\n    return None\ndef resolve_cc_for_slug(slug: str) -> Optional[str]:\n    \"\"\"\n    Best-effort country-code resolver: infer from slug or fall back to DEFAULT_CC.",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "resolve_cc_for_slug",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def resolve_cc_for_slug(slug: str) -> Optional[str]:\n    \"\"\"\n    Best-effort country-code resolver: infer from slug or fall back to DEFAULT_CC.\n    \"\"\"\n    cc = infer_cc_from_slug(slug)\n    return cc or DEFAULT_CC\n# ─────────────────────────────────────────────────────────────\n# Hotel lookup helpers\n# ─────────────────────────────────────────────────────────────\ndef get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "get_own_hotel",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:\n    \"\"\"\n    Resolve the user's OWN hotel from user_hotels → hotels.\n    Returns dict:\n       {\n         \"hotel_id\": ...,\n         \"name\": ...,\n         \"slug\": \"hotel/si/nox\",\n         \"cc\": \"si\",\n         \"own\": True,",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "get_competitor_hotels",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def get_competitor_hotels(\n    user_id: str,\n    own_hotel_id: Optional[str] = None,\n) -> List[Dict[str, Any]]:\n    \"\"\"\n    Resolve competitor hotels from user_competitors.\n    Returns list of dicts:\n      { \"hotel_id\", \"name\", \"slug\", \"cc\", \"own\": False }\n    \"\"\"\n    try:",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "scrape_hotel_for_dates",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def scrape_hotel_for_dates(\n    hotel_name: str,\n    slug: str,\n    cc: Optional[str],\n    checkin: str,\n    checkout: str,\n    should_cancel: Callable[[], bool],\n) -> List[Dict[str, Any]]:\n    \"\"\"\n    Core Booking.com scraper for a single hotel and (checkin, checkout) pair.",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "dedupe_min_per_room_and_occupancy",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def dedupe_min_per_room_and_occupancy(\n    raw_rows: List[Dict[str, Any]]\n) -> List[Dict[str, Any]]:\n    \"\"\"\n    From raw rows (possibly multiple rate options per room/occ),\n    keep the cheapest one.\n    This is what worker_poll upserts into room_prices_raw:\n      - one min row per (room, occ) per checkin.\n    \"\"\"\n    best: Dict[tuple, Dict[str, Any]] = {}",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "SUPABASE_URL",
+        "label": "logger",
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "SUPABASE_URL = os.environ[\"SUPABASE_URL\"].rstrip(\"/\")\n# Prefer service-role key; fall back if needed\nSUPABASE_KEY = (\n    os.environ.get(\"SUPABASE_SERVICE_ROLE_KEY\")\n    or os.environ.get(\"SUPABASE_SERVICE_KEY\")\n    or os.environ.get(\"SUPABASE_ANON_KEY\")\n)\nDEFAULT_CC = os.getenv(\"DEFAULT_CC\", \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nSESSION = requests.Session()",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nlogging.basicConfig(level=logging.INFO)\n@dataclass\nclass RoomPriceRow:\n    user_id: str\n    slug: str\n    checkin: dt.date\n    occupancy: int\n    room_name: str\n    price: Optional[float]",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "SUPABASE_KEY",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "SUPABASE_KEY = (\n    os.environ.get(\"SUPABASE_SERVICE_ROLE_KEY\")\n    or os.environ.get(\"SUPABASE_SERVICE_KEY\")\n    or os.environ.get(\"SUPABASE_ANON_KEY\")\n)\nDEFAULT_CC = os.getenv(\"DEFAULT_CC\", \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nSESSION = requests.Session()\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h: Dict[str, str] = {",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "DEFAULT_CC",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "DEFAULT_CC = os.getenv(\"DEFAULT_CC\", \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nSESSION = requests.Session()\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h: Dict[str, str] = {\n        \"apikey\": SUPABASE_KEY,\n        \"Authorization\": f\"Bearer {SUPABASE_KEY}\",\n    }\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "RESOLVE_CC_IF_MISSING",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "RESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nSESSION = requests.Session()\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h: Dict[str, str] = {\n        \"apikey\": SUPABASE_KEY,\n        \"Authorization\": f\"Bearer {SUPABASE_KEY}\",\n    }\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "SESSION",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "SESSION = requests.Session()\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h: Dict[str, str] = {\n        \"apikey\": SUPABASE_KEY,\n        \"Authorization\": f\"Bearer {SUPABASE_KEY}\",\n    }\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"\n    if upsert:",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "_BOOL_TRUE",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "_BOOL_TRUE = {\"1\", \"true\", \"yes\", \"y\", \"on\"}\ndef _launch_browser():\n    from playwright.sync_api import Browser\n    no_sandbox = os.getenv(\"NO_SANDBOX\", \"1\").lower() in _BOOL_TRUE\n    args: List[str] = []\n    if no_sandbox:\n        args.extend([\"--no-sandbox\", \"--disable-setuid-sandbox\"])\n    pw = sync_playwright().start()\n    browser: Browser = pw.chromium.launch(headless=True, args=args)\n    return pw, browser",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "now_iso_z",
-        "kind": 2,
+        "label": "WorkerPoll",
+        "kind": 6,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def now_iso_z() -> str:\n    return (\n        dt.datetime.now(timezone.utc)\n        .replace(microsecond=0)\n        .isoformat()\n        .replace(\"+00:00\", \"Z\")\n    )\ndef http_get(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    r = requests.get(",
+        "peekOfCode": "class WorkerPoll:\n    \"\"\"\n    Polls Supabase scrape_jobs and runs ScraperCore for queued jobs.\n    Expected table scrape_jobs fields:\n      - id (uuid)\n      - user_id (uuid)\n      - slug (text)\n      - country_code (text)\n      - start_date (date)\n      - days (int)",
         "detail": "worker_poll",
         "documentation": {}
     },
     {
-        "label": "http_get",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def http_get(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    r = requests.get(\n        url,\n        params=params,\n        headers=supabase_headers(json_pref=False),\n        timeout=30,\n    )\n    r.raise_for_status()\n    return r",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "http_patch",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def http_patch(\n    path: str,\n    params: Dict[str, Any],\n    json_body: Dict[str, Any],\n    prefer_return: bool = False,\n) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    headers = supabase_headers()\n    if prefer_return:\n        headers[\"Prefer\"] = \"return=representation\"",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "http_post",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def http_post(\n    path: str,\n    params: Dict[str, Any],\n    json_body: Any,\n    upsert: bool = False,\n    prefer: Optional[str] = None,\n    timeout_sec: int = 60,\n) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    headers = supabase_headers(upsert=upsert)",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "http_delete",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    url = f\"{SUPABASE_URL}{path}\"\n    r = requests.delete(\n        url,\n        params=params,\n        headers=supabase_headers(json_pref=False),\n        timeout=30,\n    )\n    r.raise_for_status()\n    return r",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "fetch_next_pending_job",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def fetch_next_pending_job() -> Optional[dict]:\n    r = http_get(\n        f\"/rest/v1/{JOBS_TABLE}\",\n        {\n            \"select\": \"*\",\n            \"status\": \"eq.pending\",\n            \"order\": \"created_at.asc\",\n            \"limit\": 1,\n        },\n    )",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "claim_job",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n            {\n                \"status\": \"running\",\n                \"started_at\": now_iso_z(),\n                \"heartbeat_at\": now_iso_z(),\n            },",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "set_job_fields",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    try:\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\"},\n            patch,\n            prefer_return=False,\n        )\n    except HTTPError as e:\n        print(",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "set_heartbeat",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def set_heartbeat(job_id: str):\n    try:\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\"},\n            {\"heartbeat_at\": now_iso_z()},\n        )\n    except Exception:\n        # only heartbeat; ignore errors\n        pass",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "is_canceled",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def is_canceled(job_id: str) -> bool:\n    try:\n        r = http_get(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"select\": \"status\", \"id\": f\"eq.{job_id}\", \"limit\": 1},\n        )\n        rows = r.json()\n        if not rows:\n            return True\n        status = (rows[0].get(\"status\") or \"\").lower()",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "reap_stale_jobs",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def reap_stale_jobs():\n    \"\"\"\n    Mark long-running jobs as failed (stale reaper).\n    Ignores transient 503s from Supabase/Cloudflare so the worker loop keeps running.\n    \"\"\"\n    try:\n        cutoff = (\n            dt.datetime.now(timezone.utc)\n            - dt.timedelta(minutes=STALE_JOB_MINUTES)\n        ).isoformat().replace(\"+00:00\", \"Z\")",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "archive_previous_snapshot",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def archive_previous_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/{HISTORY_FUNC}\",\n            {},\n            {\n                \"p_user_id\": user_id,\n                \"p_slug\": slug,\n                \"p_checkin\": checkin,\n            },",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "delete_current_snapshot",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            \"/rest/v1/rpc/fn_delete_day_rows\",\n            {},\n            {\n                \"p_user_id\": user_id,\n                \"p_slug\": slug,\n                \"p_checkin\": checkin,\n            },",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "ensure_soldout_marker",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:\n    try:\n        r = http_post(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"on_conflict\": \"user_id,slug,checkin\"},\n            [\n                {\n                    \"user_id\": user_id,\n                    \"slug\": slug.lower(),\n                    \"checkin\": checkin,",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "clear_soldout_marker",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\n                \"user_id\": f\"eq.{user_id}\",\n                \"slug\": f\"eq.{slug.lower()}\",\n                \"checkin\": f\"eq.{checkin}\",\n            },\n        )",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "insert_soldout_alert",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def insert_soldout_alert(user_id: str, slug: str, checkin: str):\n    \"\"\"\n    Insert AUTO_SOLD_OUT alert once per (user,type,slug,checkin).\n    Uses Supabase 'resolution=ignore-duplicates' + on_conflict on\n    (user_id,type,slug,checkin) so repeated scrapes of the same sold-out day\n    don't throw 409 errors.\n    \"\"\"\n    payload = {\n        \"type\": \"AUTO_SOLD_OUT\",\n        \"user_id\": user_id,",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "upsert_room_prices",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):\n    if not rows:\n        return\n    clean: List[Dict[str, Any]] = []\n    for r in rows:\n        base = {\n            \"user_id\": user_id,\n            \"slug\": r.get(\"slug\"),\n            \"hotel\": r.get(\"hotel\"),\n            \"checkin\": r.get(\"checkin\"),",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "process_job",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def process_job(first_row: dict):\n    job_id = first_row[\"id\"]\n    claimed = claim_job(job_id)\n    if not claimed:\n        print(f\"↩️ Job {job_id} already claimed. Skip.\")\n        return\n    job = claimed\n    user_id = job[\"user_id\"]\n    range_days = int(job.get(\"range_days\") or 1)\n    start_date = dt.date.today()",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "main",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def main():\n    print(\"⏳ Worker online. Polling scrape_jobs...\")\n    while True:\n        try:\n            reap_stale_jobs()\n            job = fetch_next_pending_job()\n            if not job:\n                time.sleep(10)\n                continue\n            print(\"🎯 picked job\", job.get(\"id\"))",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "MAX_WORKERS",
+        "label": "logger",
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "MAX_WORKERS = int(os.getenv(\"MAX_WORKERS\", \"4\"))\nMAX_JOB_DURATION_SEC = int(os.getenv(\"MAX_JOB_DURATION_SEC\", \"5400\"))\nHEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "MAX_JOB_DURATION_SEC",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "MAX_JOB_DURATION_SEC = int(os.getenv(\"MAX_JOB_DURATION_SEC\", \"5400\"))\nHEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "HEARTBEAT_EVERY_STEPS",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "HEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "STALE_JOB_MINUTES",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "STALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join(",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "JOBS_TABLE",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join(\n    [",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "RAW_TABLE",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join(\n    [\n        \"user_id\",",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "HISTORY_FUNC",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "HISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join(\n    [\n        \"user_id\",\n        \"slug\",",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "SOLDOUT_TABLE",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "SOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join(\n    [\n        \"user_id\",\n        \"slug\",\n        \"checkin\",",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "ALERTS_TABLE",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "ALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join(\n    [\n        \"user_id\",\n        \"slug\",\n        \"checkin\",\n        \"room\",",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "RAW_ON_CONFLICT",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join(\n    [\n        \"user_id\",\n        \"slug\",\n        \"checkin\",\n        \"room\",\n        \"occupancy\",",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "RAW_INCLUDE_JOB_ID",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "RAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: make sure your Railway service has this full list in env.\n_raw_allowed_default = \",\".join(\n    [\n        \"user_id\",\n        \"slug\",\n        \"checkin\",\n        \"room\",\n        \"occupancy\",\n        \"price\",",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "_raw_allowed_default",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "_raw_allowed_default = \",\".join(\n    [\n        \"user_id\",\n        \"slug\",\n        \"checkin\",\n        \"room\",\n        \"occupancy\",\n        \"price\",\n        \"hotel\",\n        \"job_id\",",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "RAW_ALLOWED_KEYS",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "RAW_ALLOWED_KEYS = {\n    k.strip()\n    for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\")\n    if k.strip()\n}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")\n# ──────────────────────────────────────────────────────────────────────────────\n# HTTP helpers\n# ──────────────────────────────────────────────────────────────────────────────",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "STEP_LOCK",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(\n    job_id: str,\n    user_id: str,\n    hotel: Dict[str, Any],\n    checkin: str,\n    checkout: str,\n) -> Dict[str, Any]:\n    slug = (hotel.get(\"slug\") or \"\").lower()\n    try:",
+        "peekOfCode": "logger = logging.getLogger(__name__)\nlogging.basicConfig(level=logging.INFO)\nclass WorkerPoll:\n    \"\"\"\n    Polls Supabase scrape_jobs and runs ScraperCore for queued jobs.\n    Expected table scrape_jobs fields:\n      - id (uuid)\n      - user_id (uuid)\n      - slug (text)\n      - country_code (text)",
         "detail": "worker_poll",
         "documentation": {}
     }
