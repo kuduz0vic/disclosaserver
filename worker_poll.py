@@ -11,7 +11,7 @@ import time
 import datetime as dt
 from datetime import timezone
 from typing import Optional, Dict, Any, List
-from concurrent.futures import ThreadPoolExecutor, as_completed, CancelledError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 import requests
@@ -156,8 +156,6 @@ def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:
 # ──────────────────────────────────────────────────────────────────────────────
 # jobs helpers (same as your hardened version)
 # ──────────────────────────────────────────────────────────────────────────────
-
-
 def fetch_next_pending_job() -> Optional[dict]:
     r = http_get(
         f"/rest/v1/{JOBS_TABLE}",
@@ -173,10 +171,6 @@ def fetch_next_pending_job() -> Optional[dict]:
 
 
 def claim_job(job_id: str) -> Optional[dict]:
-    """
-    Atomically move job from pending -> running.
-    If another worker raced us, PATCH will affect 0 rows and we return None.
-    """
     try:
         r = http_patch(
             f"/rest/v1/{JOBS_TABLE}",
@@ -200,9 +194,6 @@ def claim_job(job_id: str) -> Optional[dict]:
 
 
 def set_job_fields(job_id: str, **patch):
-    """
-    Generic patch helper. On HTTP error we log and re-raise.
-    """
     try:
         http_patch(
             f"/rest/v1/{JOBS_TABLE}",
@@ -223,9 +214,6 @@ def set_job_fields(job_id: str, **patch):
 
 
 def set_heartbeat(job_id: str):
-    """
-    Lightweight heartbeat. We swallow all errors here by design.
-    """
     try:
         http_patch(
             f"/rest/v1/{JOBS_TABLE}",
@@ -238,10 +226,6 @@ def set_heartbeat(job_id: str):
 
 
 def is_canceled(job_id: str) -> bool:
-    """
-    Check if job moved to canceled / failed while scraping.
-    Any fetch error -> treat as canceled.
-    """
     try:
         r = http_get(
             f"/rest/v1/{JOBS_TABLE}",
@@ -296,9 +280,6 @@ def reap_stale_jobs():
 # archiving + sold-out helpers
 # ──────────────────────────────────────────────────────────────────────────────
 def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
-    """
-    Move old rows for (user,slug,checkin) into history table before we upsert new ones.
-    """
     try:
         r = http_post(
             f"/rest/v1/rpc/{HISTORY_FUNC}",
@@ -323,9 +304,6 @@ def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
 
 
 def delete_current_snapshot(user_id: str, slug: str, checkin: str):
-    """
-    Delete current rows (if any) when we detect "no rooms available" / sold out.
-    """
     try:
         r = http_post(
             "/rest/v1/rpc/fn_delete_day_rows",
@@ -350,10 +328,6 @@ def delete_current_snapshot(user_id: str, slug: str, checkin: str):
 
 
 def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
-    """
-    Insert soldout_markers(user_id,slug,checkin) via upsert.
-    Returns True if we inserted a new marker, False if it already existed.
-    """
     try:
         r = http_post(
             f"/rest/v1/{SOLDOUT_TABLE}",
@@ -494,7 +468,7 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
             "room": r.get("room"),
             "occupancy": r.get("occupancy"),
             "price": r.get("price"),
-            # Rate-plan flags – these MUST be set in scraper_core.scrape_hotel_for_dates
+            # flags:
             "breakfast_included": r.get("breakfast_included"),
             "dinner_included": r.get("dinner_included"),
             "half_board": r.get("half_board"),
@@ -613,10 +587,6 @@ def process_job(first_row: dict):
     def canceled() -> bool:
         return is_canceled(job_id)
 
-    def canceled() -> bool:
-        return is_canceled(job_id)
-
-    # Fetch own + competitors via scraper_core
     own = get_own_hotel(user_id)
     own_id = own["hotel_id"] if own else None
     competitors = get_competitor_hotels(user_id, own_id)
@@ -641,7 +611,7 @@ def process_job(first_row: dict):
             }
         )
 
-    # Optional job slug filter (meta.slugs)
+    # optional job slug filter
     job_slugs = set()
     try:
         raw_slugs = (job.get("meta") or {}).get("slugs") or []
@@ -689,9 +659,6 @@ def process_job(first_row: dict):
     )
 
     completed_steps = 0
-    buffer_rows: List[dict] = []
-    buffer_lock = threading.Lock()
-
     try:
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = []
@@ -796,51 +763,6 @@ def process_job(first_row: dict):
                         if completed_steps % HEARTBEAT_EVERY_STEPS == 0:
                             set_heartbeat(job_id)
 
-                slug = (result.get("slug") or "").lower()
-                checkin = result.get("checkin")
-                rows = result.get("rows") or []
-
-                if rows:
-                    if slug and checkin:
-                        archive_previous_snapshot(user_id, slug, checkin)
-
-                    with buffer_lock:
-                        buffer_rows.extend(rows)
-                        if len(buffer_rows) >= 300:
-                            upsert_room_prices(user_id, job_id, buffer_rows)
-                            # clear soldout markers for these pairs
-                            seen_pairs = set()
-                            for rr in buffer_rows:
-                                key = (rr.get("slug"), rr.get("checkin"))
-                                if (
-                                    key not in seen_pairs
-                                    and rr.get("slug")
-                                    and rr.get("checkin")
-                                ):
-                                    clear_soldout_marker(
-                                        user_id, rr["slug"], rr["checkin"]
-                                    )
-                                    seen_pairs.add(key)
-                            buffer_rows.clear()
-                else:
-                    # No rows => treat as sold-out for that hotel/checkin
-                    if slug and checkin:
-                        try:
-                            archive_previous_snapshot(user_id, slug, checkin)
-                        except Exception:
-                            pass
-                        delete_current_snapshot(user_id, slug, checkin)
-                        ensure_soldout_marker(user_id, slug, checkin)
-                        insert_soldout_alert(user_id, slug, checkin)
-
-                # Progress / heartbeat
-                with STEP_LOCK:
-                    completed_steps += 1
-                    set_job_fields(job_id, completed_steps=completed_steps)
-                    if completed_steps % HEARTBEAT_EVERY_STEPS == 0:
-                        set_heartbeat(job_id)
-
-        # Flush remaining buffer
         if buffer_rows:
             upsert_room_prices(user_id, job_id, buffer_rows)
             seen_pairs = set()

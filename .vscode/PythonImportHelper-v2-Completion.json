@@ -173,14 +173,6 @@
         "documentation": {}
     },
     {
-        "label": "CancelledError",
-        "importPath": "concurrent.futures",
-        "description": "concurrent.futures",
-        "isExtraImport": true,
-        "detail": "concurrent.futures",
-        "documentation": {}
-    },
-    {
         "label": "threading",
         "kind": 6,
         "isExtraImport": true,
@@ -454,7 +446,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    \"\"\"\n    Atomically move job from pending -> running.\n    If another worker raced us, PATCH will affect 0 rows and we return None.\n    \"\"\"\n    try:\n        r = http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n            {",
+        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n            {\n                \"status\": \"running\",\n                \"started_at\": now_iso_z(),\n                \"heartbeat_at\": now_iso_z(),\n            },",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -463,7 +455,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    \"\"\"\n    Generic patch helper. On HTTP error we log and re-raise.\n    \"\"\"\n    try:\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\"},\n            patch,\n            prefer_return=False,",
+        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    try:\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\"},\n            patch,\n            prefer_return=False,\n        )\n    except HTTPError as e:\n        print(",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -472,7 +464,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def set_heartbeat(job_id: str):\n    \"\"\"\n    Lightweight heartbeat. We swallow all errors here by design.\n    \"\"\"\n    try:\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\"},\n            {\"heartbeat_at\": now_iso_z()},\n        )",
+        "peekOfCode": "def set_heartbeat(job_id: str):\n    try:\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\"},\n            {\"heartbeat_at\": now_iso_z()},\n        )\n    except Exception:\n        # only heartbeat; ignore errors\n        pass",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -481,7 +473,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def is_canceled(job_id: str) -> bool:\n    \"\"\"\n    Check if job moved to canceled / failed while scraping.\n    Any fetch error -> treat as canceled.\n    \"\"\"\n    try:\n        r = http_get(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"select\": \"status\", \"id\": f\"eq.{job_id}\", \"limit\": 1},\n        )",
+        "peekOfCode": "def is_canceled(job_id: str) -> bool:\n    try:\n        r = http_get(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"select\": \"status\", \"id\": f\"eq.{job_id}\", \"limit\": 1},\n        )\n        rows = r.json()\n        if not rows:\n            return True\n        status = (rows[0].get(\"status\") or \"\").lower()",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -499,7 +491,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def archive_previous_snapshot(user_id: str, slug: str, checkin: str):\n    \"\"\"\n    Move old rows for (user,slug,checkin) into history table before we upsert new ones.\n    \"\"\"\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/{HISTORY_FUNC}\",\n            {},\n            {\n                \"p_user_id\": user_id,",
+        "peekOfCode": "def archive_previous_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/{HISTORY_FUNC}\",\n            {},\n            {\n                \"p_user_id\": user_id,\n                \"p_slug\": slug,\n                \"p_checkin\": checkin,\n            },",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -508,7 +500,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    \"\"\"\n    Delete current rows (if any) when we detect \"no rooms available\" / sold out.\n    \"\"\"\n    try:\n        r = http_post(\n            \"/rest/v1/rpc/fn_delete_day_rows\",\n            {},\n            {\n                \"p_user_id\": user_id,",
+        "peekOfCode": "def delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            \"/rest/v1/rpc/fn_delete_day_rows\",\n            {},\n            {\n                \"p_user_id\": user_id,\n                \"p_slug\": slug,\n                \"p_checkin\": checkin,\n            },",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -517,7 +509,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:\n    \"\"\"\n    Insert soldout_markers(user_id,slug,checkin) via upsert.\n    Returns True if we inserted a new marker, False if it already existed.\n    \"\"\"\n    try:\n        r = http_post(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"on_conflict\": \"user_id,slug,checkin\"},\n            [",
+        "peekOfCode": "def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:\n    try:\n        r = http_post(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"on_conflict\": \"user_id,slug,checkin\"},\n            [\n                {\n                    \"user_id\": user_id,\n                    \"slug\": slug.lower(),\n                    \"checkin\": checkin,",
         "detail": "worker_poll",
         "documentation": {}
     },
