@@ -389,7 +389,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:\n    \"\"\"\n    Look into the conditions cell + policy snippets inside the row and extract flags.\n    Returns booleans or None.\n    \"\"\"\n    flags = {\n        \"breakfast_included\": None,\n        \"dinner_included\": None,\n        \"half_board\": None,\n        \"free_cancellation\": None,",
+        "peekOfCode": "def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:\n    \"\"\"\n    Look into the row (conditions + nearby policy text) and extract flags\n    about meals, cancellation and prepayment.\n    Returns a dict of booleans or None:\n      - breakfast_included\n      - dinner_included\n      - half_board\n      - free_cancellation\n      - nonrefundable",
         "detail": "scraper_core",
         "documentation": {}
     },
