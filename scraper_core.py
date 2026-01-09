@@ -194,9 +194,63 @@ OCC_PATTERNS = [
     r"\bsleeps\s+(\d+)\b",
 ]
 
+def _parse_price_number(raw: str) -> Optional[float]:
+    """Parse a number that may contain spaces, thousand separators, and comma decimals."""
+    if not raw:
+        return None
+    s = raw.strip()
+    s = re.sub(r"[^0-9,\.]", "", s)
+    if not s:
+        return None
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "")
+            s = s.replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif "," in s and "." not in s:
+        parts = s.split(",")
+        if len(parts[-1]) == 2:
+            s = ".".join(parts)
+        else:
+            s = "".join(parts)
+    else:
+        if s.count(".") > 1:
+            s = s.replace(".", "")
+    try:
+        return float(s)
+    except Exception:
+        return None
+
 def clean_price(text: str) -> Optional[float]:
+    """Extract a monetary price from text, avoiding unrelated numbers like '1 night'."""
     if not text:
         return None
+    txt = text.replace("\xa0", " ").strip()
+
+    patterns = [
+        r"(?:€|eur)\s*([0-9][0-9\s\.,]+)",
+        r"([0-9][0-9\s\.,]+)\s*(?:€|eur)",
+    ]
+    candidates: list[float] = []
+    for pat in patterns:
+        for mm in re.finditer(pat, txt, flags=re.I):
+            val = _parse_price_number(mm.group(1))
+            if val is not None:
+                candidates.append(val)
+
+    if not candidates:
+        for mm in re.finditer(r"([0-9][0-9\s\.,]+)", txt):
+            val = _parse_price_number(mm.group(1))
+            if val is not None:
+                candidates.append(val)
+
+    if not candidates:
+        return None
+    price = max(candidates)
+    if price < 5:
+        return None
+    return price
     txt = text.replace("\u00A0", " ").replace(",", ".")
     m = re.search(r"(\d+(?:\.\d+)?)", txt)
     return float(m.group(1)) if m else None
