@@ -498,29 +498,53 @@ def process_job(first_row: dict):
         )
 
     # optional job slug filter
-    job_slugs = set()
+    # IMPORTANT: be tolerant of old UI values that send just "slug" (no cc)
+    # and newer values that send "slug__cc".
+    job_slug_base: set[str] = set()
+    job_slug_full: set[str] = set()
     try:
         raw_slugs = (job.get("meta") or {}).get("slugs") or []
         if isinstance(raw_slugs, list):
             for s in raw_slugs:
-                if isinstance(s, str):
-                    job_slugs.add(s.strip().lower())
+                if not isinstance(s, str):
+                    continue
+                base, cc = split_scrape_slug(s.strip().lower())
+                if base:
+                    job_slug_base.add(base)
+                    if cc:
+                        job_slug_full.add(to_scrape_slug(base, cc))
     except Exception:
         pass
 
-    if job_slugs:
+    def _matches_job_slugs(h: Dict[str, Any]) -> bool:
+        base = (h.get("slug") or "").strip().lower()
+        cc = (h.get("cc") or DEFAULT_CC).strip().lower() if (h.get("cc") or DEFAULT_CC) else ""
+        full = to_scrape_slug(base, cc) if base else ""
+        # match if either exact full key matches OR base matches (old jobs)
+        if full and full in job_slug_full:
+            return True
+        if base and base in job_slug_base:
+            return True
+        return False
+
+    if job_slug_base or job_slug_full:
         before = len(hotels)
         seen, deduped_hotels = set(), []
         for h in hotels:
-            slug = (h.get("scrape_slug") or h.get("slug") or "").lower()
-            if h.get("own") or slug in job_slugs:
-                if slug and slug not in seen:
-                    seen.add(slug)
+            base = (h.get("slug") or "").strip().lower()
+            cc = (h.get("cc") or DEFAULT_CC).strip().lower() if (h.get("cc") or DEFAULT_CC) else ""
+            full = to_scrape_slug(base, cc) if base else ""
+
+            if h.get("own") or _matches_job_slugs(h):
+                # dedupe by full key (or base if no full)
+                key = full or base
+                if key and key not in seen:
+                    seen.add(key)
+                    # keep scrape_slug aligned with cc
+                    h["scrape_slug"] = full or base
                     deduped_hotels.append(h)
         hotels = deduped_hotels
-        print(
-            f"🔎 job slug filter: had {before}, now {len(hotels)} (own forced in)"
-        )
+        print(f"🔎 job slug filter: had {before}, now {len(hotels)} (own forced in)")
 
     if not hotels:
         print(f"❌ job {job_id} has no hotels to scrape for user {user_id}")
