@@ -27,6 +27,24 @@ from scraper_core import (
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
+# slug helpers (country-aware)
+#  - Store slugs in DB as: "<booking_slug>__<cc>" when cc is known.
+#  - Matches frontend selection and avoids cross-country collisions.
+# ──────────────────────────────────────────────────────────────────────────────
+def to_scrape_slug(base_slug: str, cc: str | None) -> str:
+    base = (base_slug or "").strip().lower()
+    cc_norm = (cc or "").strip().lower()
+    return f"{base}__{cc_norm}" if cc_norm else base
+
+def split_scrape_slug(scrape_slug: str) -> tuple[str, str | None]:
+    s = (scrape_slug or "").strip().lower()
+    if "__" in s:
+        base, cc = s.split("__", 1)
+        return base, (cc or None)
+    return s, None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Config
 # ──────────────────────────────────────────────────────────────────────────────
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
@@ -387,12 +405,24 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
 STEP_LOCK = threading.Lock()
 
 def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:
-    slug = (hotel.get("slug") or "").lower()
+    # hotel['slug'] may be either a plain booking slug or a "<slug>__<cc>" scrape slug
+    stored_slug = (hotel.get("scrape_slug") or hotel.get("slug") or "").strip().lower()
+    base_slug, cc_from_slug = split_scrape_slug(stored_slug)
+
     try:
-        cc = hotel.get("cc") or (resolve_cc_for_slug(slug) if RESOLVE_CC_IF_MISSING else None) or DEFAULT_CC
+        cc = (
+            (hotel.get("cc") or "").strip().lower()
+            or (cc_from_slug or "")
+            or (resolve_cc_for_slug(base_slug) if RESOLVE_CC_IF_MISSING else None)
+            or DEFAULT_CC
+        )
+
+        # Persist as "<slug>__<cc>" so selection + DB are consistent
+        stored_slug = to_scrape_slug(base_slug, cc)
+
         raw_rows = scrape_hotel_for_dates(
             hotel["name"],
-            slug,
+            base_slug,
             cc,
             checkin,
             checkout,
@@ -403,10 +433,11 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
             if not r.get("hotel"):
                 r["hotel"] = hotel["name"]
             r["user_id"] = user_id
-        return {"slug": slug, "checkin": checkin, "rows": deduped}
+            r["slug"] = stored_slug
+        return {"slug": stored_slug, "checkin": checkin, "rows": deduped}
     except Exception as e:
         print("⚠️ scrape task error:", e)
-        return {"slug": slug, "checkin": checkin, "rows": []}
+        return {"slug": stored_slug, "checkin": checkin, "rows": []}
 
 def clear_soldout_marker(user_id: str, slug: str, checkin: str):
     try:
@@ -459,11 +490,11 @@ def process_job(first_row: dict):
     hotels: List[Dict[str, Any]] = []
     if own:
         hotels.append(
-            {"name": own["name"], "slug": own["slug"], "cc": own.get("cc"), "own": True}
+            {"name": own["name"], "slug": own["slug"], "cc": (own.get("cc") or None), "scrape_slug": to_scrape_slug(own["slug"], (own.get("cc") or DEFAULT_CC)), "own": True}
         )
     for c in competitors:
         hotels.append(
-            {"name": c["name"], "slug": c["slug"], "cc": c.get("cc"), "own": False}
+            {"name": c["name"], "slug": c["slug"], "cc": (c.get("cc") or None), "scrape_slug": to_scrape_slug(c["slug"], (c.get("cc") or DEFAULT_CC)), "own": False}
         )
 
     # optional job slug filter
@@ -481,7 +512,7 @@ def process_job(first_row: dict):
         before = len(hotels)
         seen, deduped_hotels = set(), []
         for h in hotels:
-            slug = (h.get("slug") or "").lower()
+            slug = (h.get("scrape_slug") or h.get("slug") or "").lower()
             if h.get("own") or slug in job_slugs:
                 if slug and slug not in seen:
                     seen.add(slug)
