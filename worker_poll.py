@@ -86,6 +86,9 @@ RAW_ALLOWED_KEYS = {
 if not RAW_INCLUDE_JOB_ID and "job_id" in RAW_ALLOWED_KEYS:
     RAW_ALLOWED_KEYS.remove("job_id")
 
+# 🔒 Ensure rate_key is ALWAYS included, even if env RAW_ALLOWED_KEYS overrides it.
+RAW_ALLOWED_KEYS.add("rate_key")
+
 # ──────────────────────────────────────────────────────────────────────────────
 # HTTP helpers (short timeouts + retries)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -305,7 +308,7 @@ def insert_soldout_alert(user_id: str, slug: str, checkin: str):
         )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# upsert to RAW (flags included, no rate_key)
+# upsert to RAW (flags included, variant-aware via rate_key)
 # ──────────────────────────────────────────────────────────────────────────────
 def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     out: Dict[str, Any] = {}
@@ -328,10 +331,11 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         except Exception:
             out["price"] = None
 
-    # rate_key is part of RAW_ON_CONFLICT for variant-aware upserts.
-    # We allow an empty string (""), but not NULL.
-    if "rate_key" in RAW_ALLOWED_KEYS and out.get("rate_key") is None:
-        out["rate_key"] = ""
+    # ✅ rate_key is NOT NULL in DB. Always send a string ("" is fine).
+    rk = out.get("rate_key", "")
+    if rk is None:
+        rk = ""
+    out["rate_key"] = str(rk)
 
     required_keys = ("user_id", "slug", "checkin", "room", "occupancy")
     for rk in required_keys:
@@ -364,7 +368,8 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
             "nonrefundable": r.get("nonrefundable"),
             "prepay_required": r.get("prepay_required"),
             "rate_plan": r.get("rate_plan"),
-            "rate_key": r.get("rate_key"),
+            # ✅ always present
+            "rate_key": r.get("rate_key") if r.get("rate_key") is not None else "",
         }
         if RAW_INCLUDE_JOB_ID:
             base["job_id"] = job_id
@@ -434,6 +439,9 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
                 r["hotel"] = hotel["name"]
             r["user_id"] = user_id
             r["slug"] = stored_slug
+            # ✅ make sure every row has a non-null rate_key
+            if r.get("rate_key") is None:
+                r["rate_key"] = ""
         return {"slug": stored_slug, "checkin": checkin, "rows": deduped}
     except Exception as e:
         print("⚠️ scrape task error:", e)
@@ -581,10 +589,6 @@ def process_job(first_row: dict):
             buffer_rows: List[dict] = []
             buffer_lock = threading.Lock()
 
-            # NOTE: ThreadPool futures cannot be forcibly killed.
-            # If Playwright hangs inside a worker thread, as_completed() would block forever.
-            # We therefore use wait(..., timeout=...) and a progress watchdog that hard-exits
-            # the whole process (so the platform restarts it) if no step finishes for too long.
             pending = set(futures)
             last_progress = time.time()
 
@@ -633,7 +637,6 @@ def process_job(first_row: dict):
                         return
 
                     try:
-                        # With wait(...), the future is already completed.
                         result = fut.result()
                     except Exception as e:
                         print("⏳ step error:", type(e).__name__, e)
@@ -660,7 +663,6 @@ def process_job(first_row: dict):
                                 buffer_rows.extend(rows)
                                 if len(buffer_rows) >= 300:
                                     upsert_room_prices(user_id, job_id, buffer_rows)
-                                    # clear sold-out markers for these pairs
                                     seen_pairs = set()
                                     for rr in buffer_rows:
                                         key = (rr.get("slug"), rr.get("checkin"))
@@ -675,7 +677,6 @@ def process_job(first_row: dict):
                                             seen_pairs.add(key)
                                     buffer_rows.clear()
                         else:
-                            # sold-out path; isolate each step so none can hang the loop
                             if slug and checkin:
                                 try:
                                     archive_previous_snapshot(user_id, slug, checkin)
