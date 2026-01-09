@@ -250,7 +250,16 @@ def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, a
     return f"{base}?{urlencode(qs)}"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Attribute parsing (English only)
+# Attribute parsing (mostly English)
+#
+# IMPORTANT:
+# Booking's "room table" often contains multiple *rate variants* per room type
+# (refundable vs non-refundable, breakfast vs half-board, etc.). In those cases,
+# the flags live next to the *specific price* (or on the variant row), not
+# necessarily on the room-type header row.
+#
+# To be accurate (and make your DayPopup filters work), we parse attributes
+# **per variant row** and preserve variants via `rate_key`.
 # ──────────────────────────────────────────────────────────────────────────────
 def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:
     """
@@ -337,8 +346,10 @@ def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:
     elif re.search(r"\bwith breakfast\b", t):
         flags["breakfast_included"] = True
     elif re.search(r"\bbreakfast\b", t) and re.search(
-        r"not included|extra charge|for an extra fee|surcharge", t
+        r"not included|extra charge|for an extra fee|surcharge|\b€\b|eur\b|per person|pp\b",
+        t,
     ):
+        # If breakfast is mentioned alongside a fee, treat it as NOT included.
         flags["breakfast_included"] = False
 
     # Dinner / half-board / all-inclusive:
@@ -507,36 +518,68 @@ def extract_price_with_context(price_el) -> (Optional[float], Optional[int]):
     occ = find_adults_in_text(context_text)
     return price, occ
 
+def _is_room_name_row(row) -> Optional[str]:
+    """Return room name if the row contains a room-type/name element."""
+    try:
+        name_el = (
+            row.query_selector(".hprt-roomtype-icon-link")
+            or row.query_selector(".hprt-roomtype-name")
+            or row.query_selector("[data-testid='room-name']")
+        )
+        if not name_el:
+            return None
+        nm = (name_el.inner_text() or "").strip()
+        if not nm or not is_valid_row(nm):
+            return None
+        return re.sub(r"\s+", " ", nm)
+    except Exception:
+        return None
+
+
 def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
+    """Collect rate variants for a given adults count.
+
+    Booking often structures the table like:
+      - a "room name" row
+      - followed by 1..N "variant" rows (different cancellation/meal/payment)
+        where the room name is NOT repeated.
+
+    Older logic assumed all flags lived on the room-name row, which caused
+    dinner/non-refundable variants to be missed or overwritten.
+    """
     results: List[Dict[str, Any]] = []
-    # rows
+
     for table_sel in ROOM_TABLE_SELECTORS:
         table = page.query_selector(table_sel)
         if not table:
             continue
-        rows = table.query_selector_all(",".join(ROW_SELECTORS))
-        for row in rows:
+
+        trs = table.query_selector_all("tr")
+        current_room: Optional[str] = None
+        current_room_occ_hint: Optional[int] = None
+
+        for tr in trs:
             try:
-                name_el = (
-                    row.query_selector(".hprt-roomtype-icon-link")
-                    or row.query_selector(".hprt-roomtype-name")
-                    or row.query_selector("[data-testid='room-name']")
-                )
-                room_name = (name_el.inner_text().strip() if name_el else None)
-                if not room_name or not is_valid_row(room_name):
+                nm = _is_room_name_row(tr)
+                if nm:
+                    current_room = nm
+                    current_room_occ_hint = row_level_occupancy_hint(tr)
                     continue
 
-                row_occ = row_level_occupancy_hint(row)
-                accepted_any = False
+                # Variant row: only meaningful if we have a current room name
+                if not current_room:
+                    continue
 
-                attrs = parse_rate_attributes_from_row(row)
-                rate_key = build_rate_key(attrs)  # <<< ADDED >>>
+                # Parse flags *per variant row*
+                attrs = parse_rate_attributes_from_row(tr)
+                rate_key = build_rate_key(attrs)
 
-                for td in row.query_selector_all("td,div,section"):
-                    for psel in PRICE_SELECTORS:
-                        pel = td.query_selector(psel)
-                        if not pel:
-                            continue
+                row_occ = row_level_occupancy_hint(tr) or current_room_occ_hint
+
+                found_any_price = False
+                # Find all price elements in this row (often one)
+                for psel in PRICE_SELECTORS:
+                    for pel in tr.query_selector_all(psel):
                         price, occ_ctx = extract_price_with_context(pel)
                         if price is None:
                             continue
@@ -546,58 +589,55 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                         elif row_occ is not None:
                             occ_final = row_occ
                         else:
-                            occ_final = get_occupancy_from_name(room_name)
+                            occ_final = get_occupancy_from_name(current_room)
 
-                        if occ_final == adults:
-                            results.append({
-                                "room": re.sub(r"\s+", " ", room_name),
-                                "price": price,
-                                "occupancy": adults,
-                                # parsed flags
-                                "breakfast_included": attrs["breakfast_included"],
-                                "dinner_included": attrs["dinner_included"],
-                                "half_board": attrs["half_board"],
-                                "free_cancellation": attrs["free_cancellation"],
-                                "nonrefundable": attrs["nonrefundable"],
-                                "prepay_required": attrs["prepay_required"],
-                                "rate_plan": attrs["rate_plan"],
-                                "rate_key": rate_key,  # <<< ADDED >>>
-                            })
-                            accepted_any = True
+                        if occ_final != adults:
+                            continue
 
-                if not accepted_any:
-                    # fallback grab first price in row for this adults
-                    inferred = get_occupancy_from_name(room_name)
-                    if inferred == adults:
+                        results.append({
+                            "room": current_room,
+                            "price": price,
+                            "occupancy": adults,
+                            "breakfast_included": attrs.get("breakfast_included"),
+                            "dinner_included": attrs.get("dinner_included"),
+                            "half_board": attrs.get("half_board"),
+                            "free_cancellation": attrs.get("free_cancellation"),
+                            "nonrefundable": attrs.get("nonrefundable"),
+                            "prepay_required": attrs.get("prepay_required"),
+                            "rate_plan": attrs.get("rate_plan"),
+                            "rate_key": rate_key,
+                        })
+                        found_any_price = True
+
+                # Fallback: if no price selectors matched in the variant row,
+                # try first visible price text inside the row.
+                if not found_any_price:
+                    inferred = get_occupancy_from_name(current_room)
+                    if inferred != adults:
+                        continue
+                    first_price = None
+                    try:
+                        txt = (tr.inner_text() or "")
+                        first_price = clean_price(txt)
+                    except Exception:
                         first_price = None
-                        for td in row.query_selector_all("td,div,section"):
-                            for psel in PRICE_SELECTORS:
-                                pel = td.query_selector(psel)
-                                if pel:
-                                    first_price = clean_price(pel.inner_text())
-                                    if first_price is not None:
-                                        break
-                            if first_price is not None:
-                                break
-                        if first_price is not None:
-                            attrs = parse_rate_attributes_from_row(row)
-                            rate_key = build_rate_key(attrs)  # <<< ADDED >>>
-                            results.append({
-                                "room": re.sub(r"\s+", " ", room_name),
-                                "price": first_price,
-                                "occupancy": adults,
-                                "breakfast_included": attrs["breakfast_included"],
-                                "dinner_included": attrs["dinner_included"],
-                                "half_board": attrs["half_board"],
-                                "free_cancellation": attrs["free_cancellation"],
-                                "nonrefundable": attrs["nonrefundable"],
-                                "prepay_required": attrs["prepay_required"],
-                                "rate_plan": attrs["rate_plan"],
-                                "rate_key": rate_key,  # <<< ADDED >>>
-                            })
-
+                    if first_price is not None:
+                        results.append({
+                            "room": current_room,
+                            "price": first_price,
+                            "occupancy": adults,
+                            "breakfast_included": attrs.get("breakfast_included"),
+                            "dinner_included": attrs.get("dinner_included"),
+                            "half_board": attrs.get("half_board"),
+                            "free_cancellation": attrs.get("free_cancellation"),
+                            "nonrefundable": attrs.get("nonrefundable"),
+                            "prepay_required": attrs.get("prepay_required"),
+                            "rate_plan": attrs.get("rate_plan"),
+                            "rate_key": rate_key,
+                        })
             except Exception:
                 continue
+
     return results
 
 def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bool]] = None):

@@ -1,13 +1,13 @@
 # worker_poll.py
 # Hardened: per-step timeouts, HTTP retries, non-blocking sold-out cleanup,
-# and no dependence on 'rate_key' anywhere.
+# watchdog-based self-restart on hangs, and variant-aware via 'rate_key'.
 
 import os
 import time
 import datetime as dt
 from datetime import timezone
 from typing import Optional, Dict, Any, List
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import threading
 import random
 import requests
@@ -36,6 +36,10 @@ STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "90"))
 
 HOTEL_STEP_TIMEOUT_SEC = int(os.getenv("HOTEL_STEP_TIMEOUT_SEC", "120"))
 
+# If we don't see ANY step finish for this long, assume Playwright is hung and
+# hard-exit the process so the platform restarts the service.
+NO_PROGRESS_KILL_SEC = int(os.getenv("NO_PROGRESS_KILL_SEC", "1800"))
+
 HTTP_TIMEOUT_SEC = float(os.getenv("HTTP_TIMEOUT_SEC", "20"))
 HTTP_RETRIES = int(os.getenv("HTTP_RETRIES", "2"))
 RETRY_BASE_SLEEP = float(os.getenv("RETRY_BASE_SLEEP", "0.6"))
@@ -45,15 +49,16 @@ RAW_TABLE = "room_prices_raw"
 HISTORY_FUNC = "fn_archive_day_rows"
 SOLDOUT_TABLE = "soldout_markers"
 ALERTS_TABLE = "alert_events"
-RAW_ON_CONFLICT = "user_id,slug,checkin,room,occupancy"
+RAW_ON_CONFLICT = os.getenv("RAW_ON_CONFLICT", "user_id,slug,checkin,room,occupancy,rate_key")
 
 RAW_INCLUDE_JOB_ID = os.getenv("RAW_INCLUDE_JOB_ID", "0") == "1"
 
-# IMPORTANT: allow-list the exact columns we upsert (no 'rate_key'!)
+# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)
 _raw_allowed_default = ",".join([
     "user_id","slug","checkin","room","occupancy","price","hotel","job_id",
     "breakfast_included","dinner_included","half_board",
     "free_cancellation","nonrefundable","prepay_required","rate_plan",
+    "rate_key",
 ])
 RAW_ALLOWED_KEYS = {
     k.strip()
@@ -305,6 +310,11 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         except Exception:
             out["price"] = None
 
+    # rate_key is part of RAW_ON_CONFLICT for variant-aware upserts.
+    # We allow an empty string (""), but not NULL.
+    if "rate_key" in RAW_ALLOWED_KEYS and out.get("rate_key") is None:
+        out["rate_key"] = ""
+
     required_keys = ("user_id", "slug", "checkin", "room", "occupancy")
     for rk in required_keys:
         if not out.get(rk):
@@ -336,6 +346,7 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
             "nonrefundable": r.get("nonrefundable"),
             "prepay_required": r.get("prepay_required"),
             "rate_plan": r.get("rate_plan"),
+            "rate_key": r.get("rate_key"),
         }
         if RAW_INCLUDE_JOB_ID:
             base["job_id"] = job_id
@@ -345,10 +356,10 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
     if not clean:
         return
 
-    # dedupe within batch by (user, slug, date, room, occ) -> keep cheaper
+    # dedupe within batch by (user, slug, date, room, occ, rate_key) -> keep cheaper
     uniq: Dict[tuple, Dict[str, Any]] = {}
     for r in clean:
-        key = (r["user_id"], r["slug"], r["checkin"], r["room"], r["occupancy"])
+        key = (r["user_id"], r["slug"], r["checkin"], r["room"], r["occupancy"], r.get("rate_key") or "")
         if key not in uniq or r["price"] < uniq[key]["price"]:
             uniq[key] = r
     clean = list(uniq.values())
@@ -515,7 +526,14 @@ def process_job(first_row: dict):
             buffer_rows: List[dict] = []
             buffer_lock = threading.Lock()
 
-            for fut in as_completed(futures):
+            # NOTE: ThreadPool futures cannot be forcibly killed.
+            # If Playwright hangs inside a worker thread, as_completed() would block forever.
+            # We therefore use wait(..., timeout=...) and a progress watchdog that hard-exits
+            # the whole process (so the platform restarts it) if no step finishes for too long.
+            pending = set(futures)
+            last_progress = time.time()
+
+            while pending:
                 if canceled():
                     break
                 if over_time_budget():
@@ -528,77 +546,108 @@ def process_job(first_row: dict):
                     print(f"⏱️ job {job_id} exceeded time budget; failing")
                     return
 
-                try:
-                    # IMPORTANT: hard timeout per future
-                    result = fut.result(timeout=HOTEL_STEP_TIMEOUT_SEC)
-                except Exception as e:
-                    print("⏳ step timeout / error:", type(e).__name__, e)
-                    with STEP_LOCK:
-                        completed_steps += 1
-                        set_job_fields(
-                            job_id,
-                            completed_steps=completed_steps,
-                            last_error="step timeout",
-                        )
-                        if completed_steps % HEARTBEAT_EVERY_STEPS == 0:
-                            set_heartbeat(job_id)
+                done, pending = wait(pending, timeout=15, return_when=FIRST_COMPLETED)
+                if not done:
+                    if (time.time() - last_progress) > NO_PROGRESS_KILL_SEC:
+                        try:
+                            set_job_fields(
+                                job_id,
+                                status="failed",
+                                finished_at=now_iso_z(),
+                                last_error=f"worker hang: no progress for {NO_PROGRESS_KILL_SEC}s",
+                            )
+                        except Exception:
+                            pass
+                        print(f"🧨 No progress for {NO_PROGRESS_KILL_SEC}s -> exiting worker so platform restarts")
+                        os._exit(2)
                     continue
 
-                try:
-                    slug = (result.get("slug") or "").lower()
-                    checkin = result.get("checkin")
-                    rows = result.get("rows") or []
+                for fut in done:
+                    last_progress = time.time()
 
-                    if rows:
-                        if slug and checkin:
-                            archive_previous_snapshot(user_id, slug, checkin)
-                        with buffer_lock:
-                            buffer_rows.extend(rows)
-                            if len(buffer_rows) >= 300:
-                                upsert_room_prices(user_id, job_id, buffer_rows)
-                                # clear sold-out markers for these pairs
-                                seen_pairs = set()
-                                for rr in buffer_rows:
-                                    key = (rr.get("slug"), rr.get("checkin"))
-                                    if (
-                                        key not in seen_pairs
-                                        and rr.get("slug")
-                                        and rr.get("checkin")
-                                    ):
-                                        clear_soldout_marker(
-                                            user_id, rr["slug"], rr["checkin"]
-                                        )
-                                        seen_pairs.add(key)
-                                buffer_rows.clear()
-                    else:
-                        # sold-out path; isolate each step so none can hang the loop
-                        if slug and checkin:
-                            try:
+                    if canceled():
+                        break
+                    if over_time_budget():
+                        set_job_fields(
+                            job_id,
+                            status="failed",
+                            finished_at=now_iso_z(),
+                            last_error="time budget exceeded",
+                        )
+                        print(f"⏱️ job {job_id} exceeded time budget; failing")
+                        return
+
+                    try:
+                        # With wait(...), the future is already completed.
+                        result = fut.result()
+                    except Exception as e:
+                        print("⏳ step error:", type(e).__name__, e)
+                        with STEP_LOCK:
+                            completed_steps += 1
+                            set_job_fields(
+                                job_id,
+                                completed_steps=completed_steps,
+                                last_error="step error",
+                            )
+                            if completed_steps % HEARTBEAT_EVERY_STEPS == 0:
+                                set_heartbeat(job_id)
+                        continue
+
+                    try:
+                        slug = (result.get("slug") or "").lower()
+                        checkin = result.get("checkin")
+                        rows = result.get("rows") or []
+
+                        if rows:
+                            if slug and checkin:
                                 archive_previous_snapshot(user_id, slug, checkin)
-                            except Exception as e:
-                                print("⚠️ archive_previous_snapshot err:", e)
-                            try:
-                                delete_current_snapshot(user_id, slug, checkin)
-                            except Exception as e:
-                                print("⚠️ delete_current_snapshot err:", e)
-                            try:
-                                ensure_soldout_marker(user_id, slug, checkin)
-                            except Exception as e:
-                                print("⚠️ ensure_soldout_marker err:", e)
-                            try:
-                                insert_soldout_alert(user_id, slug, checkin)
-                            except Exception as e:
-                                print("⚠️ insert_soldout_alert err:", e)
+                            with buffer_lock:
+                                buffer_rows.extend(rows)
+                                if len(buffer_rows) >= 300:
+                                    upsert_room_prices(user_id, job_id, buffer_rows)
+                                    # clear sold-out markers for these pairs
+                                    seen_pairs = set()
+                                    for rr in buffer_rows:
+                                        key = (rr.get("slug"), rr.get("checkin"))
+                                        if (
+                                            key not in seen_pairs
+                                            and rr.get("slug")
+                                            and rr.get("checkin")
+                                        ):
+                                            clear_soldout_marker(
+                                                user_id, rr["slug"], rr["checkin"]
+                                            )
+                                            seen_pairs.add(key)
+                                    buffer_rows.clear()
+                        else:
+                            # sold-out path; isolate each step so none can hang the loop
+                            if slug and checkin:
+                                try:
+                                    archive_previous_snapshot(user_id, slug, checkin)
+                                except Exception as e:
+                                    print("⚠️ archive_previous_snapshot err:", e)
+                                try:
+                                    delete_current_snapshot(user_id, slug, checkin)
+                                except Exception as e:
+                                    print("⚠️ delete_current_snapshot err:", e)
+                                try:
+                                    ensure_soldout_marker(user_id, slug, checkin)
+                                except Exception as e:
+                                    print("⚠️ ensure_soldout_marker err:", e)
+                                try:
+                                    insert_soldout_alert(user_id, slug, checkin)
+                                except Exception as e:
+                                    print("⚠️ insert_soldout_alert err:", e)
 
-                except Exception as e:
-                    print("⚠️ parallel scrape step error:", e)
-                    set_job_fields(job_id, last_error=str(e))
-                finally:
-                    with STEP_LOCK:
-                        completed_steps += 1
-                        set_job_fields(job_id, completed_steps=completed_steps)
-                        if completed_steps % HEARTBEAT_EVERY_STEPS == 0:
-                            set_heartbeat(job_id)
+                    except Exception as e:
+                        print("⚠️ parallel scrape step error:", e)
+                        set_job_fields(job_id, last_error=str(e))
+                    finally:
+                        with STEP_LOCK:
+                            completed_steps += 1
+                            set_job_fields(job_id, completed_steps=completed_steps)
+                            if completed_steps % HEARTBEAT_EVERY_STEPS == 0:
+                                set_heartbeat(job_id)
 
         if buffer_rows:
             try:
