@@ -18,6 +18,40 @@
         "documentation": {}
     },
     {
+        "label": "time",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "time",
+        "description": "time",
+        "detail": "time",
+        "documentation": {}
+    },
+    {
+        "label": "datetime",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "datetime",
+        "description": "datetime",
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "timezone",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "timezone",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
         "label": "Optional",
         "importPath": "typing",
         "description": "typing",
@@ -51,6 +85,14 @@
     },
     {
         "label": "Callable",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -98,14 +140,6 @@
         "documentation": {}
     },
     {
-        "label": "urlparse",
-        "importPath": "urllib.parse",
-        "description": "urllib.parse",
-        "isExtraImport": true,
-        "detail": "urllib.parse",
-        "documentation": {}
-    },
-    {
         "label": "requests",
         "kind": 6,
         "isExtraImport": true,
@@ -144,40 +178,6 @@
         "description": "playwright.sync_api",
         "isExtraImport": true,
         "detail": "playwright.sync_api",
-        "documentation": {}
-    },
-    {
-        "label": "lru_cache",
-        "importPath": "functools",
-        "description": "functools",
-        "isExtraImport": true,
-        "detail": "functools",
-        "documentation": {}
-    },
-    {
-        "label": "time",
-        "kind": 6,
-        "isExtraImport": true,
-        "importPath": "time",
-        "description": "time",
-        "detail": "time",
-        "documentation": {}
-    },
-    {
-        "label": "datetime",
-        "kind": 6,
-        "isExtraImport": true,
-        "importPath": "datetime",
-        "description": "datetime",
-        "detail": "datetime",
-        "documentation": {}
-    },
-    {
-        "label": "timezone",
-        "importPath": "datetime",
-        "description": "datetime",
-        "isExtraImport": true,
-        "detail": "datetime",
         "documentation": {}
     },
     {
@@ -307,25 +307,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n    if upsert:\n        h[\"Prefer\"] = \"resolution=merge-duplicates,return=representation\"\n    return h\n# ──────────────────────────────────────────────────────────────────────────────\n# User hotel discovery (own + competitors)\n# ──────────────────────────────────────────────────────────────────────────────",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "get_own_hotel",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def get_own_hotel(user_id: str):\n    links = _get_user_links(user_id)\n    if not links:\n        return None\n    for l in links:\n        if l.get(\"link_type\") == \"own\":\n            slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n            if slug:\n                cc = (l.get(\"booking_cc\") or \"\").lower() or None\n                return {\"hotel_id\": l[\"hotel_id\"], \"name\": l[\"name\"] or \"My Hotel\", \"slug\": slug, \"cc\": cc}",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "get_competitor_hotels",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:\n    links = _get_user_links(user_id)\n    out: List[Dict[str, Any]] = []\n    for l in links:\n        if own_hotel_id and l[\"hotel_id\"] == own_hotel_id:\n            continue\n        slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n        if not slug:\n            continue\n        cc = (l.get(\"booking_cc\") or \"\").lower() or None",
+        "peekOfCode": "def supabase_headers(upsert: bool = False, json_pref: bool = True) -> Dict[str, str]:\n    h = {\n        \"apikey\": SUPABASE_KEY,\n        \"Authorization\": f\"Bearer {SUPABASE_KEY}\",\n    }\n    if json_pref:\n        h[\"Accept\"] = \"application/json\"\n        h[\"Content-Type\"] = \"application/json\"\n    if upsert:\n        # PostgREST upsert uses Prefer header; your worker adds it too",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -334,70 +316,88 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def resolve_cc_for_slug(slug: str, timeout: float = 4.0) -> Optional[str]:\n    if not slug:\n        return None\n    s = requests.Session()\n    headers = {\"User-Agent\": USER_AGENT, \"Accept-Language\": \"en-GB,en;q=0.9\"}\n    for cc in COMMON_CCS:\n        try:\n            url = f\"https://www.booking.com/hotel/{cc}/{slug}.html?lang=en-gb\"\n            r = s.get(url, headers=headers, timeout=timeout, allow_redirects=True)\n            if r.status_code != 200:",
+        "peekOfCode": "def resolve_cc_for_slug(slug: str) -> Optional[str]:\n    # In production you should *not* do heavy probing here.\n    return None\n# ──────────────────────────────────────────────────────────────────────────────\n# Parsing rules\n# ──────────────────────────────────────────────────────────────────────────────\nMAX_PERSONS_RE = re.compile(r\"max persons:\\s*(\\d+)\", re.IGNORECASE)\nONLY_FOR_GUEST_RE = re.compile(r\"only for\\s+(\\d+)\\s+guest\", re.IGNORECASE)\ndef parse_max_persons(text: str) -> Optional[int]:\n    if not text:",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "clean_price",
+        "label": "parse_max_persons",
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def clean_price(text: str) -> Optional[float]:\n    if not text:\n        return None\n    txt = text.replace(\"\\u00A0\", \" \").replace(\",\", \".\")\n    m = re.search(r\"(\\d+(?:\\.\\d+)?)\", txt)\n    return float(m.group(1)) if m else None\ndef find_adults_in_text(text: str) -> Optional[int]:\n    if not text:\n        return None\n    t = \" \".join(text.split()).lower()",
+        "peekOfCode": "def parse_max_persons(text: str) -> Optional[int]:\n    if not text:\n        return None\n    m = MAX_PERSONS_RE.search(text)\n    if not m:\n        return None\n    try:\n        return int(m.group(1))\n    except Exception:\n        return None",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "find_adults_in_text",
+        "label": "parse_only_for_guest",
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def find_adults_in_text(text: str) -> Optional[int]:\n    if not text:\n        return None\n    t = \" \".join(text.split()).lower()\n    for pat in OCC_PATTERNS:\n        m = re.search(pat, t)\n        if m:\n            try:\n                n = int(m.group(1))\n                if 1 <= n <= 8:",
+        "peekOfCode": "def parse_only_for_guest(text: str) -> Optional[int]:\n    if not text:\n        return None\n    m = ONLY_FOR_GUEST_RE.search(text)\n    if not m:\n        return None\n    try:\n        return int(m.group(1))\n    except Exception:\n        return None",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "row_level_occupancy_hint",
+        "label": "parse_price_str",
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def row_level_occupancy_hint(row) -> Optional[int]:\n    try:\n        txt = row.inner_text() or \"\"\n        return find_adults_in_text(txt)\n    except Exception:\n        return None\ndef get_occupancy_from_name(name: str) -> int:\n    n = (name or \"\").lower()\n    if \"triple\" in n: return 3\n    if \"quadruple\" in n or \"family\" in n: return 4",
+        "peekOfCode": "def parse_price_str(s: str) -> Optional[float]:\n    if not s:\n        return None\n    m = CURRENCY_RE.search(s)\n    if not m:\n        return None\n    raw = m.group(2)\n    raw = raw.replace(\"\\u00a0\", \" \").strip()\n    raw = raw.replace(\" \", \"\")\n    if \",\" in raw and \".\" in raw:",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "get_occupancy_from_name",
+        "label": "text_has_breakfast",
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def get_occupancy_from_name(name: str) -> int:\n    n = (name or \"\").lower()\n    if \"triple\" in n: return 3\n    if \"quadruple\" in n or \"family\" in n: return 4\n    if \"single\" in n: return 1\n    return 2\ndef is_valid_row(name: str) -> bool:\n    n = (name or \"\").lower()\n    return not any(x in n for x in [\"review\", \"score\", \"rating\"])\ndef build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, adults: int, lang=\"en-gb\"):",
+        "peekOfCode": "def text_has_breakfast(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"breakfast included\" in t or \"includes breakfast\" in t\ndef text_has_dinner(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"dinner included\" in t or \"includes dinner\" in t\ndef text_has_half_board(text: str) -> bool:\n    t = (text or \"\").lower()\n    # Booking may say \"Half board\"\n    return \"half board\" in t or \"half-board\" in t",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "is_valid_row",
+        "label": "text_has_dinner",
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def is_valid_row(name: str) -> bool:\n    n = (name or \"\").lower()\n    return not any(x in n for x in [\"review\", \"score\", \"rating\"])\ndef build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, adults: int, lang=\"en-gb\"):\n    cc_eff = (cc or DEFAULT_CC).lower()\n    base = f\"https://www.booking.com/hotel/{cc_eff}/{slug}.html\"\n    qs = {\n        \"checkin\": checkin,\n        \"checkout\": checkout,\n        \"group_adults\": adults,",
+        "peekOfCode": "def text_has_dinner(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"dinner included\" in t or \"includes dinner\" in t\ndef text_has_half_board(text: str) -> bool:\n    t = (text or \"\").lower()\n    # Booking may say \"Half board\"\n    return \"half board\" in t or \"half-board\" in t\ndef text_is_nonrefundable(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"non-refundable\" in t or \"non refundable\" in t or \"nrf\" in t",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "build_hotel_url",
+        "label": "text_has_half_board",
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, adults: int, lang=\"en-gb\"):\n    cc_eff = (cc or DEFAULT_CC).lower()\n    base = f\"https://www.booking.com/hotel/{cc_eff}/{slug}.html\"\n    qs = {\n        \"checkin\": checkin,\n        \"checkout\": checkout,\n        \"group_adults\": adults,\n        \"group_children\": 0,\n        \"no_rooms\": 1,\n        \"selected_currency\": \"EUR\",",
+        "peekOfCode": "def text_has_half_board(text: str) -> bool:\n    t = (text or \"\").lower()\n    # Booking may say \"Half board\"\n    return \"half board\" in t or \"half-board\" in t\ndef text_is_nonrefundable(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"non-refundable\" in t or \"non refundable\" in t or \"nrf\" in t\ndef text_has_free_cancellation(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"free cancellation\" in t or \"cancel for free\" in t",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "parse_rate_attributes_from_row",
+        "label": "text_is_nonrefundable",
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:\n    \"\"\"\n    Look into the row (conditions + nearby policy text) and extract flags\n    about meals, cancellation and prepayment.\n    Returns a dict of booleans or None:\n      - breakfast_included\n      - dinner_included\n      - half_board\n      - free_cancellation\n      - nonrefundable",
+        "peekOfCode": "def text_is_nonrefundable(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"non-refundable\" in t or \"non refundable\" in t or \"nrf\" in t\ndef text_has_free_cancellation(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"free cancellation\" in t or \"cancel for free\" in t\ndef text_has_prepay(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"prepayment\" in t or \"pay now\" in t or \"you'll be charged\" in t\ndef build_rate_key(",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "text_has_free_cancellation",
+        "kind": 2,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "def text_has_free_cancellation(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"free cancellation\" in t or \"cancel for free\" in t\ndef text_has_prepay(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"prepayment\" in t or \"pay now\" in t or \"you'll be charged\" in t\ndef build_rate_key(\n    breakfast: bool,\n    free_cancel: Optional[bool],\n    nonref: Optional[bool],",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "text_has_prepay",
+        "kind": 2,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "def text_has_prepay(text: str) -> bool:\n    t = (text or \"\").lower()\n    return \"prepayment\" in t or \"pay now\" in t or \"you'll be charged\" in t\ndef build_rate_key(\n    breakfast: bool,\n    free_cancel: Optional[bool],\n    nonref: Optional[bool],\n    prepay: Optional[bool],\n    dinner: Optional[bool],\n    half_board: Optional[bool],",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -406,34 +406,16 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def build_rate_key(flags: dict) -> str:\n    \"\"\"\n    Stable fingerprint for a rate variant (ternary state so unknowns don't collide).\n    Order matters—keep it consistent with DB consumers.\n    \"\"\"\n    def tri(v, t):\n        return f\"{t}1\" if v is True else (f\"{t}0\" if v is False else f\"{t}?\")\n    return \"|\".join([\n        tri(flags.get(\"breakfast_included\"), \"b\"),\n        tri(flags.get(\"free_cancellation\"), \"rc\"),",
+        "peekOfCode": "def build_rate_key(\n    breakfast: bool,\n    free_cancel: Optional[bool],\n    nonref: Optional[bool],\n    prepay: Optional[bool],\n    dinner: Optional[bool],\n    half_board: Optional[bool],\n) -> str:\n    # small stable key used for variant uniqueness\n    # Keep it deterministic + compact",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "extract_price_with_context",
+        "label": "build_booking_url",
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def extract_price_with_context(price_el) -> (Optional[float], Optional[int]):\n    price = None\n    try:\n        price = clean_price(price_el.inner_text())\n    except Exception:\n        return None, None\n    if price is None:\n        return None, None\n    try:\n        context_text = price_el.evaluate(",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "collect_room_rows_for_adults",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:\n    \"\"\"Collect rate variants for a given adults count.\n    Booking often structures the table like:\n      - a \"room name\" row\n      - followed by 1..N \"variant\" rows (different cancellation/meal/payment)\n        where the room name is NOT repeated.\n    Older logic assumed all flags lived on the room-name row, which caused\n    dinner/non-refundable variants to be missed or overwritten.\n    \"\"\"\n    results: List[Dict[str, Any]] = []",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "aggressively_expand_and_scroll",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bool]] = None):\n    def cancelled() -> bool:\n        return bool(should_cancel and should_cancel())\n    try:\n        if cancelled(): return\n        page.wait_for_selector(\"#onetrust-accept-btn-handler\", timeout=3000)\n        page.click(\"#onetrust-accept-btn-handler\")\n    except TimeoutError:\n        pass\n    for _ in range(3):",
+        "peekOfCode": "def build_booking_url(slug: str, cc: str, checkin: str, checkout: str, adults: int) -> str:\n    base = f\"https://www.booking.com/hotel/{cc}/{slug}.html\"\n    q = {\n        \"checkin\": checkin,\n        \"checkout\": checkout,\n        \"group_adults\": adults,\n        \"group_children\": 0,\n        \"no_rooms\": 1,\n        \"selected_currency\": \"EUR\",\n        \"lang\": \"en-gb\",",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -442,7 +424,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def scrape_hotel_for_dates(\n    name: str,\n    slug: str,\n    cc: Optional[str],\n    checkin: str,\n    checkout: str,\n    should_cancel: Optional[Callable[[], bool]] = None,\n) -> List[dict]:\n    out: List[dict] = []\n    with sync_playwright() as p:",
+        "peekOfCode": "def scrape_hotel_for_dates(\n    hotel_name: str,\n    booking_slug: str,\n    booking_cc: str,\n    checkin: str,\n    checkout: str,\n    should_cancel: Optional[Callable[[], bool]] = None,\n) -> List[Dict[str, Any]]:\n    \"\"\"\n    Returns list of rows with:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -451,7 +433,25 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:\n    # <<< CHANGED >>> include rate_key in the key so variants are preserved\n    best: Dict[tuple, dict] = {}\n    for r in rows:\n        slug_lower = (r[\"slug\"] or \"\").lower()\n        rate_key = r.get(\"rate_key\") or \"\"\n        key = (slug_lower, r[\"checkin\"], r[\"room\"], int(r[\"occupancy\"]), rate_key)\n        price = r[\"price\"]\n        if price is None:\n            continue",
+        "peekOfCode": "def dedupe_min_per_room_and_occupancy(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:\n    \"\"\"\n    Keep the cheapest row per (slug, checkin, room, occupancy, rate_key).\n    \"\"\"\n    best: Dict[Tuple, Dict[str, Any]] = {}\n    for r in rows or []:\n        key = (\n            (r.get(\"slug\") or \"\").lower(),\n            (r.get(\"checkin\") or \"\")[:10],\n            (r.get(\"room\") or \"\").strip(),",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "get_own_hotel",
+        "kind": 2,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:\n    links = _get_user_links(user_id)\n    if not links:\n        return None\n    for l in links:\n        if l.get(\"link_type\") == \"own\":\n            slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n            if slug:\n                cc = (l.get(\"booking_cc\") or \"\").lower() or None\n                return {\"hotel_id\": l[\"hotel_id\"], \"name\": l.get(\"name\") or \"My Hotel\", \"slug\": slug, \"cc\": cc}",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "get_competitor_hotels",
+        "kind": 2,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:\n    links = _get_user_links(user_id)\n    out: List[Dict[str, Any]] = []\n    for l in links:\n        if own_hotel_id and l.get(\"hotel_id\") == own_hotel_id:\n            continue\n        if l.get(\"link_type\") not in (\"competitor\", \"own\"):\n            continue\n        slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n        if not slug:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -460,7 +460,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "SUPABASE_URL = os.getenv(\"SUPABASE_URL\") or os.getenv(\"NEXT_PUBLIC_SUPABASE_URL\")\nSUPABASE_KEY = (\n    os.getenv(\"SUPABASE_SERVICE_ROLE_KEY\")\n    or os.getenv(\"SUPABASE_KEY\")\n    or os.getenv(\"NEXT_PUBLIC_SUPABASE_ANON_KEY\")\n)\nassert SUPABASE_URL and SUPABASE_KEY, \"Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY\"\nDEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (",
+        "peekOfCode": "SUPABASE_URL = os.getenv(\"SUPABASE_URL\") or os.getenv(\"NEXT_PUBLIC_SUPABASE_URL\") or \"\"\nSUPABASE_KEY = os.getenv(\"SUPABASE_SERVICE_ROLE_KEY\") or os.getenv(\"SUPABASE_KEY\") or os.getenv(\"NEXT_PUBLIC_SUPABASE_ANON_KEY\") or \"\"\nDEFAULT_CC = os.getenv(\"DEFAULT_CC\", \"si\").strip().lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"0\") == \"1\"\n# Make sure you set this TRUE once you’re happy:\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\n# ──────────────────────────────────────────────────────────────────────────────\n# Helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(upsert: bool = False, json_pref: bool = True) -> Dict[str, str]:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -469,7 +469,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "SUPABASE_KEY = (\n    os.getenv(\"SUPABASE_SERVICE_ROLE_KEY\")\n    or os.getenv(\"SUPABASE_KEY\")\n    or os.getenv(\"NEXT_PUBLIC_SUPABASE_ANON_KEY\")\n)\nassert SUPABASE_URL and SUPABASE_KEY, \"Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY\"\nDEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")",
+        "peekOfCode": "SUPABASE_KEY = os.getenv(\"SUPABASE_SERVICE_ROLE_KEY\") or os.getenv(\"SUPABASE_KEY\") or os.getenv(\"NEXT_PUBLIC_SUPABASE_ANON_KEY\") or \"\"\nDEFAULT_CC = os.getenv(\"DEFAULT_CC\", \"si\").strip().lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"0\") == \"1\"\n# Make sure you set this TRUE once you’re happy:\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\n# ──────────────────────────────────────────────────────────────────────────────\n# Helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(upsert: bool = False, json_pref: bool = True) -> Dict[str, str]:\n    h = {",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -478,7 +478,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "DEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")\n    or \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\"\n).split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (",
+        "peekOfCode": "DEFAULT_CC = os.getenv(\"DEFAULT_CC\", \"si\").strip().lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"0\") == \"1\"\n# Make sure you set this TRUE once you’re happy:\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\n# ──────────────────────────────────────────────────────────────────────────────\n# Helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(upsert: bool = False, json_pref: bool = True) -> Dict[str, str]:\n    h = {\n        \"apikey\": SUPABASE_KEY,",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -487,97 +487,52 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "RESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")\n    or \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\"\n).split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"",
+        "peekOfCode": "RESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"0\") == \"1\"\n# Make sure you set this TRUE once you’re happy:\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\n# ──────────────────────────────────────────────────────────────────────────────\n# Helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(upsert: bool = False, json_pref: bool = True) -> Dict[str, str]:\n    h = {\n        \"apikey\": SUPABASE_KEY,\n        \"Authorization\": f\"Bearer {SUPABASE_KEY}\",",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "COMMON_CCS",
+        "label": "HEADLESS",
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "COMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")\n    or \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\"\n).split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"",
+        "peekOfCode": "HEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\n# ──────────────────────────────────────────────────────────────────────────────\n# Helpers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(upsert: bool = False, json_pref: bool = True) -> Dict[str, str]:\n    h = {\n        \"apikey\": SUPABASE_KEY,\n        \"Authorization\": f\"Bearer {SUPABASE_KEY}\",\n    }\n    if json_pref:",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "PAGE_GOTO_TIMEOUT_MS",
+        "label": "MAX_PERSONS_RE",
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "PAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers",
+        "peekOfCode": "MAX_PERSONS_RE = re.compile(r\"max persons:\\s*(\\d+)\", re.IGNORECASE)\nONLY_FOR_GUEST_RE = re.compile(r\"only for\\s+(\\d+)\\s+guest\", re.IGNORECASE)\ndef parse_max_persons(text: str) -> Optional[int]:\n    if not text:\n        return None\n    m = MAX_PERSONS_RE.search(text)\n    if not m:\n        return None\n    try:\n        return int(m.group(1))",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "WAIT_TABLE_TIMEOUT_MS",
+        "label": "ONLY_FOR_GUEST_RE",
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "WAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "ONLY_FOR_GUEST_RE = re.compile(r\"only for\\s+(\\d+)\\s+guest\", re.IGNORECASE)\ndef parse_max_persons(text: str) -> Optional[int]:\n    if not text:\n        return None\n    m = MAX_PERSONS_RE.search(text)\n    if not m:\n        return None\n    try:\n        return int(m.group(1))\n    except Exception:",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "SCROLL_PASSES",
+        "label": "CURRENCY_RE",
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "SCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:",
+        "peekOfCode": "CURRENCY_RE = re.compile(r\"(€|\\$|£)\\s*([0-9][0-9\\.,\\s]*)\")\ndef parse_price_str(s: str) -> Optional[float]:\n    if not s:\n        return None\n    m = CURRENCY_RE.search(s)\n    if not m:\n        return None\n    raw = m.group(2)\n    raw = raw.replace(\"\\u00a0\", \" \").strip()\n    raw = raw.replace(\" \", \"\")",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "USER_AGENT",
+        "label": "PRICE_TESTIDS",
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "USER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "EXPAND_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\",\"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\",\"a:has-text('Show all')\",\n    \"a:has-text('Show more')\",\"a:has-text('See all rooms')\",\n]\nROOM_TABLE_SELECTORS = [\"#hprt-table\", \"table.hprt-table\", \"[data-testid='hprt-table']\"]\nROW_SELECTORS = [\"tr.js-rt-block-row\", \"table.hprt-table tr\", \"[data-testid='room-row']\"]\nPRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "ROOM_TABLE_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "ROOM_TABLE_SELECTORS = [\"#hprt-table\", \"table.hprt-table\", \"[data-testid='hprt-table']\"]\nROW_SELECTORS = [\"tr.js-rt-block-row\", \"table.hprt-table tr\", \"[data-testid='room-row']\"]\nPRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-inline-price\",\n]\nOCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "ROW_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "ROW_SELECTORS = [\"tr.js-rt-block-row\", \"table.hprt-table tr\", \"[data-testid='room-row']\"]\nPRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-inline-price\",\n]\nOCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "PRICE_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "PRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-inline-price\",\n]\nOCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\b(\\d+)\\s+adults?\\b\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "OCC_PATTERNS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "OCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\b(\\d+)\\s+adults?\\b\",\n    r\"\\bfor\\s+(\\d+)\\s+people\\b\",\n    r\"\\b(\\d+)\\s+guests?\\b\",\n    r\"\\bsleeps\\s+(\\d+)\\b\",\n]\ndef clean_price(text: str) -> Optional[float]:\n    if not text:",
+        "peekOfCode": "PRICE_TESTIDS = [\n    \"price-and-discounted-price\",\n    \"recommended-price\",\n    \"price-and-discounted-price--no-discount\",\n    \"price-and-discounted-price--pay-now\",\n]\ndef _extract_price_from_card(card) -> Optional[float]:\n    # 1) Try price testids first (most stable)\n    for tid in PRICE_TESTIDS:\n        els = card.query_selector_all(f\"[data-testid='{tid}']\")",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -928,7 +883,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_ALLOWED_KEYS = {\n    k.strip()\n    for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\")\n    if k.strip()\n}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")\n# ──────────────────────────────────────────────────────────────────────────────\n# HTTP helpers (short timeouts + retries)\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "RAW_ALLOWED_KEYS = {\n    k.strip()\n    for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\")\n    if k.strip()\n}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")\n# 🔒 Ensure rate_key is ALWAYS included, even if env RAW_ALLOWED_KEYS overrides it.\nRAW_ALLOWED_KEYS.add(\"rate_key\")\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "worker_poll",
         "documentation": {}
     },
