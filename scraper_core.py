@@ -148,13 +148,13 @@ def _get_user_links(user_id: str) -> List[dict]:
     )
     hotels_by_id = {h["id"]: h for h in hotels if h.get("id")}
 
-    # 3) hotel_profiles (can be 0 or >1; we choose the newest inserted_at if present)
+    # 3) hotel_profiles (can be 0 or >1; we choose the newest updated_at if present)
     profiles = _rest_get(
         "/rest/v1/hotel_profiles",
         {
-            "select": "hotel_id,booking_slug,booking_cc,inserted_at",
+            "select": "hotel_id,booking_slug,booking_cc,updated_at",
             "hotel_id": f"in.({','.join(hotel_ids)})",
-            "order": "inserted_at.desc.nullslast",
+            "order": "updated_at.desc.nullslast",
         },
     )
     prof_by_hotel: Dict[str, dict] = {}
