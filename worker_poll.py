@@ -1,12 +1,28 @@
 # worker_poll.py
-# Hardened: per-step timeouts, HTTP retries, non-blocking sold-out cleanup,
-# watchdog-based self-restart on hangs, and variant-aware via 'rate_key'.
+# ──────────────────────────────────────────────────────────────────────────────
+# Job worker (Railway / container) that polls scrape_jobs and runs Booking scrapes.
+#
+# Hardened:
+# - per-step timeouts (at scheduler level)
+# - HTTP retries
+# - stale-job reaper (heartbeat based)
+# - watchdog hard-exit if no step completes for too long (platform restarts service)
+# - variant-aware via rate_key
+#
+# IMPORTANT DB NOTE
+# - Recommended unique key for room_prices_raw is:
+#     (user_id, slug, checkin, room, occupancy, rate_key)
+#   Use the provided migration file. If you haven't applied it yet, this worker
+#   will fall back to the legacy ON CONFLICT key without rate_key (variants overwrite).
+# ──────────────────────────────────────────────────────────────────────────────
+
+from __future__ import annotations
 
 import os
 import time
 import datetime as dt
 from datetime import timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import threading
 import random
@@ -15,7 +31,6 @@ from requests import HTTPError
 
 from scraper_core import (
     SUPABASE_URL,
-    SUPABASE_KEY,
     supabase_headers,
     get_own_hotel,
     get_competitor_hotels,
@@ -24,39 +39,21 @@ from scraper_core import (
     DEFAULT_CC,
     scrape_hotel_for_dates,
     dedupe_min_per_room_and_occupancy,
+    to_scrape_slug,
+    split_scrape_slug,
 )
-
-# ──────────────────────────────────────────────────────────────────────────────
-# slug helpers (country-aware)
-#  - Store slugs in DB as: "<booking_slug>__<cc>" when cc is known.
-#  - Matches frontend selection and avoids cross-country collisions.
-# ──────────────────────────────────────────────────────────────────────────────
-def to_scrape_slug(base_slug: str, cc: str | None) -> str:
-    base = (base_slug or "").strip().lower()
-    cc_norm = (cc or "").strip().lower()
-    return f"{base}__{cc_norm}" if cc_norm else base
-
-def split_scrape_slug(scrape_slug: str) -> tuple[str, str | None]:
-    s = (scrape_slug or "").strip().lower()
-    if "__" in s:
-        base, cc = s.split("__", 1)
-        return base, (cc or None)
-    return s, None
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Config
 # ──────────────────────────────────────────────────────────────────────────────
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
-MAX_JOB_DURATION_SEC = int(os.getenv("MAX_JOB_DURATION_SEC", "5400"))
+MAX_JOB_DURATION_SEC = int(os.getenv("MAX_JOB_DURATION_SEC", "5400"))  # 90 min
 HEARTBEAT_EVERY_STEPS = int(os.getenv("HEARTBEAT_EVERY_STEPS", "8"))
 STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "90"))
 
-HOTEL_STEP_TIMEOUT_SEC = int(os.getenv("HOTEL_STEP_TIMEOUT_SEC", "120"))
-
 # If we don't see ANY step finish for this long, assume Playwright is hung and
 # hard-exit the process so the platform restarts the service.
-NO_PROGRESS_KILL_SEC = int(os.getenv("NO_PROGRESS_KILL_SEC", "1800"))
+NO_PROGRESS_KILL_SEC = int(os.getenv("NO_PROGRESS_KILL_SEC", "1800"))  # 30 min
 
 HTTP_TIMEOUT_SEC = float(os.getenv("HTTP_TIMEOUT_SEC", "20"))
 HTTP_RETRIES = int(os.getenv("HTTP_RETRIES", "2"))
@@ -65,13 +62,17 @@ RETRY_BASE_SLEEP = float(os.getenv("RETRY_BASE_SLEEP", "0.6"))
 JOBS_TABLE = "scrape_jobs"
 RAW_TABLE = "room_prices_raw"
 HISTORY_FUNC = "fn_archive_day_rows"
+DELETE_DAY_FUNC = "fn_delete_day_rows"
 SOLDOUT_TABLE = "soldout_markers"
 ALERTS_TABLE = "alert_events"
+
+# Preferred ON CONFLICT key (variants preserved)
 RAW_ON_CONFLICT = os.getenv("RAW_ON_CONFLICT", "user_id,slug,checkin,room,occupancy,rate_key")
+# Legacy key (variants overwritten)
+RAW_ON_CONFLICT_LEGACY = os.getenv("RAW_ON_CONFLICT_LEGACY", "user_id,slug,checkin,room,occupancy")
 
 RAW_INCLUDE_JOB_ID = os.getenv("RAW_INCLUDE_JOB_ID", "0") == "1"
 
-# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)
 _raw_allowed_default = ",".join([
     "user_id","slug","checkin","room","occupancy","price","hotel","job_id",
     "breakfast_included","dinner_included","half_board",
@@ -85,9 +86,6 @@ RAW_ALLOWED_KEYS = {
 }
 if not RAW_INCLUDE_JOB_ID and "job_id" in RAW_ALLOWED_KEYS:
     RAW_ALLOWED_KEYS.remove("job_id")
-
-# 🔒 Ensure rate_key is ALWAYS included, even if env RAW_ALLOWED_KEYS overrides it.
-RAW_ALLOWED_KEYS.add("rate_key")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # HTTP helpers (short timeouts + retries)
@@ -161,23 +159,12 @@ def claim_job(job_id: str) -> Optional[dict]:
         return None
 
 def set_job_fields(job_id: str, **patch):
-    try:
-        http_patch(
-            f"/rest/v1/{JOBS_TABLE}",
-            {"id": f"eq.{job_id}"},
-            patch,
-            prefer_return=False,
-        )
-    except HTTPError as e:
-        print(
-            "❌ set_job_fields error:",
-            e,
-            "| payload:",
-            patch,
-            "| resp:",
-            getattr(e.response, "text", "")[:400],
-        )
-        raise
+    http_patch(
+        f"/rest/v1/{JOBS_TABLE}",
+        {"id": f"eq.{job_id}"},
+        patch,
+        prefer_return=False,
+    )
 
 def set_heartbeat(job_id: str):
     try:
@@ -200,8 +187,7 @@ def is_canceled(job_id: str) -> bool:
             return True
         status = (rows[0].get("status") or "").lower()
         return status in ("canceled", "failed")
-    except HTTPError as e:
-        print("⚠️ is_canceled check failed:", e, getattr(e.response, "text", "")[:200])
+    except Exception:
         return True
 
 def reap_stale_jobs():
@@ -215,11 +201,11 @@ def reap_stale_jobs():
             {"status": "eq.running", "or": f"(heartbeat_at.is.null,heartbeat_at.lt.{cutoff})"},
             {"status": "failed", "finished_at": now_iso_z(), "last_error": "stale (reaped)"},
         )
-    except HTTPError as e:
-        print("⚠️ stale reaper error:", e, getattr(e.response, "text", "")[:400])
+    except Exception as e:
+        print("⚠️ stale reaper error:", type(e).__name__, str(e)[:200])
 
 # ──────────────────────────────────────────────────────────────────────────────
-# archiving + sold-out helpers (each isolated)
+# archiving + sold-out helpers
 # ──────────────────────────────────────────────────────────────────────────────
 def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
     try:
@@ -230,34 +216,30 @@ def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
             upsert=False,
             timeout_sec=20,
         )
-        print(
-            f"📦 Archived {int(r.json() or 0)} old rows for {slug} {checkin} before upsert"
-        )
-    except HTTPError as e:
-        print(
-            "⚠️ archive_previous_snapshot failed:",
-            e,
-            getattr(e.response, "text", "")[:400],
-        )
+        try:
+            n = int(r.json() or 0)
+        except Exception:
+            n = 0
+        print(f"📦 Archived {n} old rows for {slug} {checkin} before upsert")
+    except Exception as e:
+        print("⚠️ archive_previous_snapshot failed:", type(e).__name__, str(e)[:200])
 
 def delete_current_snapshot(user_id: str, slug: str, checkin: str):
     try:
         r = http_post(
-            "/rest/v1/rpc/fn_delete_day_rows",
+            f"/rest/v1/rpc/{DELETE_DAY_FUNC}",
             {},
             {"p_user_id": user_id, "p_slug": slug, "p_checkin": checkin},
             upsert=False,
             timeout_sec=20,
         )
-        print(
-            f"🧹 Deleted {int(r.json() or 0)} rows for {slug} {checkin} (sold out)"
-        )
-    except HTTPError as e:
-        print(
-            "⚠️ delete_current_snapshot failed:",
-            e,
-            getattr(e.response, "text", "")[:400],
-        )
+        try:
+            n = int(r.json() or 0)
+        except Exception:
+            n = 0
+        print(f"🧹 Deleted {n} rows for {slug} {checkin} (sold out)")
+    except Exception as e:
+        print("⚠️ delete_current_snapshot failed:", type(e).__name__, str(e)[:200])
 
 def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
     try:
@@ -271,12 +253,8 @@ def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
         )
         rows = r.json() if r.text else []
         return bool(rows)
-    except HTTPError as e:
-        print(
-            "⚠️ ensure_soldout_marker failed:",
-            e,
-            getattr(e.response, "text", "")[:400],
-        )
+    except Exception as e:
+        print("⚠️ ensure_soldout_marker failed:", type(e).__name__, str(e)[:200])
         return False
 
 def insert_soldout_alert(user_id: str, slug: str, checkin: str):
@@ -286,29 +264,26 @@ def insert_soldout_alert(user_id: str, slug: str, checkin: str):
         "slug": slug.lower(),
         "checkin": checkin,
         "price": None,
-        "payload": {
-            "source": "worker_poll",
-            "reason": "no rooms parsed for any occupancy",
-        },
+        "payload": {"source": "worker_poll", "reason": "no rooms parsed for any occupancy"},
     }
     try:
-        http_post(
-            f"/rest/v1/{ALERTS_TABLE}",
-            {},
-            payload,
-            upsert=False,
-            timeout_sec=20,
-        )
+        http_post(f"/rest/v1/{ALERTS_TABLE}", {}, payload, upsert=False, timeout_sec=20)
         print(f"🔔 ALERT AUTO_SOLD_OUT for {slug} {checkin} (user={user_id})")
-    except HTTPError as e:
-        print(
-            "⚠️ insert_soldout_alert failed:",
-            e,
-            getattr(e.response, "text", "")[:400],
+    except Exception as e:
+        print("⚠️ insert_soldout_alert failed:", type(e).__name__, str(e)[:200])
+
+def clear_soldout_marker(user_id: str, slug: str, checkin: str):
+    try:
+        http_delete(
+            f"/rest/v1/{SOLDOUT_TABLE}",
+            {"user_id": f"eq.{user_id}", "slug": f"eq.{slug.lower()}", "checkin": f"eq.{checkin}"},
         )
+        print(f"🧽 Cleared sold-out marker for {slug} {checkin}")
+    except Exception as e:
+        print("⚠️ clear_soldout_marker failed:", type(e).__name__, str(e)[:200])
 
 # ──────────────────────────────────────────────────────────────────────────────
-# upsert to RAW (flags included, variant-aware via rate_key)
+# upsert to RAW
 # ──────────────────────────────────────────────────────────────────────────────
 def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     out: Dict[str, Any] = {}
@@ -316,6 +291,7 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if k in row:
             out[k] = row[k]
 
+    # normalize
     if "slug" in out and isinstance(out["slug"], str):
         out["slug"] = out["slug"].strip().lower()
     if "checkin" in out and isinstance(out["checkin"], str):
@@ -331,25 +307,25 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         except Exception:
             out["price"] = None
 
-    # ✅ rate_key is NOT NULL in DB. Always send a string ("" is fine).
-    rk = out.get("rate_key", "")
-    if rk is None:
-        rk = ""
-    out["rate_key"] = str(rk)
+    # rate_key must NEVER be NULL (DB may enforce NOT NULL)
+    if "rate_key" in RAW_ALLOWED_KEYS and not out.get("rate_key"):
+        out["rate_key"] = "b?|rc?|nrf?|pp?|din?|hb?"
 
-    required_keys = ("user_id", "slug", "checkin", "room", "occupancy")
-    for rk in required_keys:
-        if not out.get(rk):
+    required = ("user_id", "slug", "checkin", "room", "occupancy", "price", "hotel")
+    for rk in required:
+        if out.get(rk) in (None, "", 0):
             return None
-    if "hotel" in RAW_ALLOWED_KEYS and not out.get("hotel"):
-        return None
-    if out.get("price") is None:
+    if out["price"] is None or out["price"] < 5:
         return None
     return out
+
+def _postgrest_is_conflict(err_text: str) -> bool:
+    return ("duplicate key value violates unique constraint" in err_text.lower()) or ("23505" in err_text)
 
 def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
     if not rows:
         return
+
     clean: List[Dict[str, Any]] = []
     for r in rows:
         base = {
@@ -360,7 +336,6 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
             "room": r.get("room"),
             "occupancy": r.get("occupancy"),
             "price": r.get("price"),
-            # flags:
             "breakfast_included": r.get("breakfast_included"),
             "dinner_included": r.get("dinner_included"),
             "half_board": r.get("half_board"),
@@ -368,25 +343,28 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
             "nonrefundable": r.get("nonrefundable"),
             "prepay_required": r.get("prepay_required"),
             "rate_plan": r.get("rate_plan"),
-            # ✅ always present
-            "rate_key": r.get("rate_key") if r.get("rate_key") is not None else "",
+            "rate_key": r.get("rate_key"),
         }
         if RAW_INCLUDE_JOB_ID:
             base["job_id"] = job_id
         s = _sanitize_raw_row(base)
         if s:
             clean.append(s)
+
     if not clean:
         return
 
-    # dedupe within batch by (user, slug, date, room, occ, rate_key) -> keep cheaper
-    uniq: Dict[tuple, Dict[str, Any]] = {}
+    # Deduplicate within batch:
+    # - if DB supports rate_key uniqueness: key includes rate_key
+    # - otherwise: it doesn't matter; we'll upsert legacy
+    uniq: Dict[Tuple, Dict[str, Any]] = {}
     for r in clean:
-        key = (r["user_id"], r["slug"], r["checkin"], r["room"], r["occupancy"], r.get("rate_key") or "")
-        if key not in uniq or r["price"] < uniq[key]["price"]:
-            uniq[key] = r
+        k = (r["user_id"], r["slug"], r["checkin"], r["room"], r["occupancy"], r.get("rate_key") or "")
+        if k not in uniq or r["price"] < uniq[k]["price"]:
+            uniq[k] = r
     clean = list(uniq.values())
 
+    # send in chunks
     for i in range(0, len(clean), 300):
         batch = clean[i : i + 300]
         try:
@@ -397,12 +375,25 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
                 upsert=True,
                 timeout_sec=30,
             )
-            print(f"✅ Upserted {len(batch)} rows into room_prices_raw")
+            print(f"✅ Upserted {len(batch)} rows into room_prices_raw (key={RAW_ON_CONFLICT})")
         except HTTPError as e:
-            print("❌ upsert_room_prices error:", e, getattr(e.response, "text", "")[:400])
-            if batch:
-                print("   sample row:", batch[0])
-            raise
+            txt = getattr(e.response, "text", "") or ""
+            # If DB still has old unique constraint, PostgREST may throw 409/23505
+            if _postgrest_is_conflict(txt):
+                print("⚠️ Conflict with current unique constraint. Falling back to legacy upsert key (variants will overwrite).")
+                http_post(
+                    f"/rest/v1/{RAW_TABLE}",
+                    {"on_conflict": RAW_ON_CONFLICT_LEGACY},
+                    batch,
+                    upsert=True,
+                    timeout_sec=30,
+                )
+                print(f"✅ Upserted {len(batch)} rows into room_prices_raw (key={RAW_ON_CONFLICT_LEGACY})")
+            else:
+                print("❌ upsert_room_prices error:", e, txt[:400])
+                if batch:
+                    print("   sample row:", batch[0])
+                raise
 
 # ──────────────────────────────────────────────────────────────────────────────
 # scrape step wrapper
@@ -410,7 +401,6 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
 STEP_LOCK = threading.Lock()
 
 def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:
-    # hotel['slug'] may be either a plain booking slug or a "<slug>__<cc>" scrape slug
     stored_slug = (hotel.get("scrape_slug") or hotel.get("slug") or "").strip().lower()
     base_slug, cc_from_slug = split_scrape_slug(stored_slug)
 
@@ -422,7 +412,6 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
             or DEFAULT_CC
         )
 
-        # Persist as "<slug>__<cc>" so selection + DB are consistent
         stored_slug = to_scrape_slug(base_slug, cc)
 
         raw_rows = scrape_hotel_for_dates(
@@ -439,33 +428,12 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
                 r["hotel"] = hotel["name"]
             r["user_id"] = user_id
             r["slug"] = stored_slug
-            # ✅ make sure every row has a non-null rate_key
-            if r.get("rate_key") is None:
-                r["rate_key"] = ""
+            if not r.get("rate_key"):
+                r["rate_key"] = "b?|rc?|nrf?|pp?|din?|hb?"
         return {"slug": stored_slug, "checkin": checkin, "rows": deduped}
     except Exception as e:
-        print("⚠️ scrape task error:", e)
+        print("⚠️ scrape task error:", type(e).__name__, str(e)[:250])
         return {"slug": stored_slug, "checkin": checkin, "rows": []}
-
-def clear_soldout_marker(user_id: str, slug: str, checkin: str):
-    try:
-        http_delete(
-            f"/rest/v1/{SOLDOUT_TABLE}",
-            {
-                "user_id": f"eq.{user_id}",
-                "slug": f"eq.{slug.lower()}",
-                "checkin": f"eq.{checkin}",
-            },
-        )
-        print(f"🧽 Cleared sold-out marker for {slug} {checkin}")
-    except HTTPError as e:
-        print(
-            "⚠️ clear_soldout_marker failed:",
-            e,
-            getattr(e.response, "text", "")[:400],
-        )
-    except Exception as e:
-        print("⚠️ clear_soldout_marker error:", e)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # main job loop
@@ -484,30 +452,33 @@ def process_job(first_row: dict):
     job_started = dt.datetime.now(timezone.utc)
 
     def over_time_budget() -> bool:
-        return (
-            dt.datetime.now(timezone.utc) - job_started
-        ).total_seconds() > MAX_JOB_DURATION_SEC
-
-    def canceled() -> bool:
-        return is_canceled(job_id)
+        return (dt.datetime.now(timezone.utc) - job_started).total_seconds() > MAX_JOB_DURATION_SEC
 
     own = get_own_hotel(user_id)
     own_id = own["hotel_id"] if own else None
     competitors = get_competitor_hotels(user_id, own_id)
 
     hotels: List[Dict[str, Any]] = []
-    if own:
-        hotels.append(
-            {"name": own["name"], "slug": own["slug"], "cc": (own.get("cc") or None), "scrape_slug": to_scrape_slug(own["slug"], (own.get("cc") or DEFAULT_CC)), "own": True}
-        )
+    if own and own.get("slug"):
+        hotels.append({
+            "name": own["name"],
+            "slug": own["slug"],
+            "cc": (own.get("cc") or None),
+            "scrape_slug": to_scrape_slug(own["slug"], (own.get("cc") or DEFAULT_CC)),
+            "own": True,
+        })
     for c in competitors:
-        hotels.append(
-            {"name": c["name"], "slug": c["slug"], "cc": (c.get("cc") or None), "scrape_slug": to_scrape_slug(c["slug"], (c.get("cc") or DEFAULT_CC)), "own": False}
-        )
+        if not c.get("slug"):
+            continue
+        hotels.append({
+            "name": c["name"],
+            "slug": c["slug"],
+            "cc": (c.get("cc") or None),
+            "scrape_slug": to_scrape_slug(c["slug"], (c.get("cc") or DEFAULT_CC)),
+            "own": False,
+        })
 
-    # optional job slug filter
-    # IMPORTANT: be tolerant of old UI values that send just "slug" (no cc)
-    # and newer values that send "slug__cc".
+    # Optional job slug filter (meta.slugs)
     job_slug_base: set[str] = set()
     job_slug_full: set[str] = set()
     try:
@@ -528,12 +499,7 @@ def process_job(first_row: dict):
         base = (h.get("slug") or "").strip().lower()
         cc = (h.get("cc") or DEFAULT_CC).strip().lower() if (h.get("cc") or DEFAULT_CC) else ""
         full = to_scrape_slug(base, cc) if base else ""
-        # match if either exact full key matches OR base matches (old jobs)
-        if full and full in job_slug_full:
-            return True
-        if base and base in job_slug_base:
-            return True
-        return False
+        return (full and full in job_slug_full) or (base and base in job_slug_base)
 
     if job_slug_base or job_slug_full:
         before = len(hotels)
@@ -542,13 +508,10 @@ def process_job(first_row: dict):
             base = (h.get("slug") or "").strip().lower()
             cc = (h.get("cc") or DEFAULT_CC).strip().lower() if (h.get("cc") or DEFAULT_CC) else ""
             full = to_scrape_slug(base, cc) if base else ""
-
             if h.get("own") or _matches_job_slugs(h):
-                # dedupe by full key (or base if no full)
                 key = full or base
                 if key and key not in seen:
                     seen.add(key)
-                    # keep scrape_slug aligned with cc
                     h["scrape_slug"] = full or base
                     deduped_hotels.append(h)
         hotels = deduped_hotels
@@ -556,52 +519,34 @@ def process_job(first_row: dict):
 
     if not hotels:
         print(f"❌ job {job_id} has no hotels to scrape for user {user_id}")
-        set_job_fields(
-            job_id,
-            status="failed",
-            finished_at=now_iso_z(),
-            last_error="no hotels configured",
-        )
+        set_job_fields(job_id, status="failed", finished_at=now_iso_z(), last_error="no hotels configured")
         return
 
-    print(
-        f"🚀 process_job {job_id} (user {user_id}) | range_days={range_days} | hotels={len(hotels)}"
-    )
+    print(f"🚀 process_job {job_id} (user {user_id}) | range_days={range_days} | hotels={len(hotels)}")
     total_steps = len(hotels) * range_days
     set_job_fields(job_id, total_steps=(total_steps or None), completed_steps=0)
 
     completed_steps = 0
+    buffer_rows: List[dict] = []
+    buffer_lock = threading.Lock()
+
     try:
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = []
             for h in hotels:
                 for d in range(range_days):
                     checkin = (start_date + dt.timedelta(days=d)).strftime("%Y-%m-%d")
-                    checkout = (start_date + dt.timedelta(days=d + 1)).strftime(
-                        "%Y-%m-%d"
-                    )
-                    futures.append(
-                        pool.submit(
-                            _scrape_once, job_id, user_id, h, checkin, checkout
-                        )
-                    )
-
-            buffer_rows: List[dict] = []
-            buffer_lock = threading.Lock()
+                    checkout = (start_date + dt.timedelta(days=d + 1)).strftime("%Y-%m-%d")
+                    futures.append(pool.submit(_scrape_once, job_id, user_id, h, checkin, checkout))
 
             pending = set(futures)
             last_progress = time.time()
 
             while pending:
-                if canceled():
+                if is_canceled(job_id):
                     break
                 if over_time_budget():
-                    set_job_fields(
-                        job_id,
-                        status="failed",
-                        finished_at=now_iso_z(),
-                        last_error="time budget exceeded",
-                    )
+                    set_job_fields(job_id, status="failed", finished_at=now_iso_z(), last_error="time budget exceeded")
                     print(f"⏱️ job {job_id} exceeded time budget; failing")
                     return
 
@@ -609,12 +554,8 @@ def process_job(first_row: dict):
                 if not done:
                     if (time.time() - last_progress) > NO_PROGRESS_KILL_SEC:
                         try:
-                            set_job_fields(
-                                job_id,
-                                status="failed",
-                                finished_at=now_iso_z(),
-                                last_error=f"worker hang: no progress for {NO_PROGRESS_KILL_SEC}s",
-                            )
+                            set_job_fields(job_id, status="failed", finished_at=now_iso_z(),
+                                          last_error=f"worker hang: no progress for {NO_PROGRESS_KILL_SEC}s")
                         except Exception:
                             pass
                         print(f"🧨 No progress for {NO_PROGRESS_KILL_SEC}s -> exiting worker so platform restarts")
@@ -623,39 +564,25 @@ def process_job(first_row: dict):
 
                 for fut in done:
                     last_progress = time.time()
-
-                    if canceled():
+                    if is_canceled(job_id):
                         break
-                    if over_time_budget():
-                        set_job_fields(
-                            job_id,
-                            status="failed",
-                            finished_at=now_iso_z(),
-                            last_error="time budget exceeded",
-                        )
-                        print(f"⏱️ job {job_id} exceeded time budget; failing")
-                        return
 
                     try:
                         result = fut.result()
                     except Exception as e:
-                        print("⏳ step error:", type(e).__name__, e)
+                        print("⏳ step error:", type(e).__name__, str(e)[:200])
                         with STEP_LOCK:
                             completed_steps += 1
-                            set_job_fields(
-                                job_id,
-                                completed_steps=completed_steps,
-                                last_error="step error",
-                            )
+                            set_job_fields(job_id, completed_steps=completed_steps, last_error="step error")
                             if completed_steps % HEARTBEAT_EVERY_STEPS == 0:
                                 set_heartbeat(job_id)
                         continue
 
-                    try:
-                        slug = (result.get("slug") or "").lower()
-                        checkin = result.get("checkin")
-                        rows = result.get("rows") or []
+                    slug = (result.get("slug") or "").lower()
+                    checkin = result.get("checkin")
+                    rows = result.get("rows") or []
 
+                    try:
                         if rows:
                             if slug and checkin:
                                 archive_previous_snapshot(user_id, slug, checkin)
@@ -666,38 +593,22 @@ def process_job(first_row: dict):
                                     seen_pairs = set()
                                     for rr in buffer_rows:
                                         key = (rr.get("slug"), rr.get("checkin"))
-                                        if (
-                                            key not in seen_pairs
-                                            and rr.get("slug")
-                                            and rr.get("checkin")
-                                        ):
-                                            clear_soldout_marker(
-                                                user_id, rr["slug"], rr["checkin"]
-                                            )
+                                        if key not in seen_pairs and rr.get("slug") and rr.get("checkin"):
+                                            clear_soldout_marker(user_id, rr["slug"], rr["checkin"])
                                             seen_pairs.add(key)
                                     buffer_rows.clear()
                         else:
                             if slug and checkin:
-                                try:
-                                    archive_previous_snapshot(user_id, slug, checkin)
-                                except Exception as e:
-                                    print("⚠️ archive_previous_snapshot err:", e)
-                                try:
-                                    delete_current_snapshot(user_id, slug, checkin)
-                                except Exception as e:
-                                    print("⚠️ delete_current_snapshot err:", e)
-                                try:
-                                    ensure_soldout_marker(user_id, slug, checkin)
-                                except Exception as e:
-                                    print("⚠️ ensure_soldout_marker err:", e)
-                                try:
-                                    insert_soldout_alert(user_id, slug, checkin)
-                                except Exception as e:
-                                    print("⚠️ insert_soldout_alert err:", e)
-
+                                archive_previous_snapshot(user_id, slug, checkin)
+                                delete_current_snapshot(user_id, slug, checkin)
+                                ensure_soldout_marker(user_id, slug, checkin)
+                                insert_soldout_alert(user_id, slug, checkin)
                     except Exception as e:
-                        print("⚠️ parallel scrape step error:", e)
-                        set_job_fields(job_id, last_error=str(e))
+                        print("⚠️ parallel scrape step error:", type(e).__name__, str(e)[:250])
+                        try:
+                            set_job_fields(job_id, last_error=str(e)[:400])
+                        except Exception:
+                            pass
                     finally:
                         with STEP_LOCK:
                             completed_steps += 1
@@ -705,11 +616,12 @@ def process_job(first_row: dict):
                             if completed_steps % HEARTBEAT_EVERY_STEPS == 0:
                                 set_heartbeat(job_id)
 
+        # flush remaining
         if buffer_rows:
             try:
                 upsert_room_prices(user_id, job_id, buffer_rows)
             except Exception as e:
-                print("⚠️ final upsert buffer err:", e)
+                print("⚠️ final upsert buffer err:", type(e).__name__, str(e)[:250])
             seen_pairs = set()
             for rr in buffer_rows:
                 key = (rr.get("slug"), rr.get("checkin"))
@@ -718,35 +630,15 @@ def process_job(first_row: dict):
                     seen_pairs.add(key)
 
         set_heartbeat(job_id)
-        if canceled():
+        if is_canceled(job_id):
             set_job_fields(job_id, status="canceled", finished_at=now_iso_z())
         else:
             set_job_fields(job_id, status="done", finished_at=now_iso_z())
 
-    except HTTPError as http_err:
-        print(
-            "💥 HTTP error in process_job:",
-            http_err,
-            getattr(http_err.response, "text", "")[:400],
-        )
-        try:
-            set_job_fields(
-                job_id,
-                status="failed",
-                finished_at=now_iso_z(),
-                last_error=str(http_err),
-            )
-        except Exception:
-            pass
     except Exception as fatal:
-        print("💥 fatal in process_job:", fatal)
+        print("💥 fatal in process_job:", type(fatal).__name__, str(fatal)[:400])
         try:
-            set_job_fields(
-                job_id,
-                status="failed",
-                finished_at=now_iso_z(),
-                last_error=str(fatal),
-            )
+            set_job_fields(job_id, status="failed", finished_at=now_iso_z(), last_error=str(fatal)[:400])
         except Exception:
             pass
 
@@ -762,14 +654,10 @@ def main():
             print("🎯 picked job", job.get("id"))
             process_job(job)
         except HTTPError as http_err:
-            print(
-                "worker loop HTTP error:",
-                http_err,
-                getattr(http_err.response, "text", "")[:400],
-            )
+            print("worker loop HTTP error:", http_err, getattr(http_err.response, "text", "")[:400])
             time.sleep(10)
         except Exception as e:
-            print("worker loop error:", e)
+            print("worker loop error:", type(e).__name__, str(e)[:250])
             time.sleep(10)
 
 if __name__ == "__main__":
