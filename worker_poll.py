@@ -398,10 +398,12 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
     stored_slug = f"{base_slug}__{cc}" if cc else base_slug
 
     try:
+        # scraper_core.scrape_hotel_for_dates signature is:
+        #   scrape_hotel_for_dates(name, slug, cc, checkin, checkout, should_cancel=None)
         raw_rows = scrape_hotel_for_dates(
-            hotel_name=hotel.get("name") or "",
-            booking_slug=base_slug,
-            booking_cc=cc,
+            name=hotel.get("name") or "",
+            slug=base_slug,
+            cc=cc,
             checkin=checkin,
             checkout=checkout,
             should_cancel=lambda: is_canceled(job_id),
