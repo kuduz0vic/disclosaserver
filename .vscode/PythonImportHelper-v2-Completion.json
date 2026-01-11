@@ -1,5 +1,21 @@
 [
     {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
         "label": "os",
         "kind": 6,
         "isExtraImport": true,
@@ -15,6 +31,14 @@
         "importPath": "re",
         "description": "re",
         "detail": "re",
+        "documentation": {}
+    },
+    {
+        "label": "lru_cache",
+        "importPath": "functools",
+        "description": "functools",
+        "isExtraImport": true,
+        "detail": "functools",
         "documentation": {}
     },
     {
@@ -58,6 +82,14 @@
         "documentation": {}
     },
     {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
         "label": "Optional",
         "importPath": "typing",
         "description": "typing",
@@ -83,6 +115,14 @@
     },
     {
         "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
         "importPath": "typing",
         "description": "typing",
         "isExtraImport": true,
@@ -144,14 +184,6 @@
         "description": "playwright.sync_api",
         "isExtraImport": true,
         "detail": "playwright.sync_api",
-        "documentation": {}
-    },
-    {
-        "label": "lru_cache",
-        "importPath": "functools",
-        "description": "functools",
-        "isExtraImport": true,
-        "detail": "functools",
         "documentation": {}
     },
     {
@@ -231,14 +263,6 @@
         "documentation": {}
     },
     {
-        "label": "SUPABASE_KEY",
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "isExtraImport": true,
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
         "label": "supabase_headers",
         "importPath": "scraper_core",
         "description": "scraper_core",
@@ -303,11 +327,45 @@
         "documentation": {}
     },
     {
+        "label": "to_scrape_slug",
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "isExtraImport": true,
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "split_scrape_slug",
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "isExtraImport": true,
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "to_scrape_slug",
+        "kind": 2,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "def to_scrape_slug(base_slug: str, cc: str | None) -> str:\n    base = (base_slug or \"\").strip().lower()\n    cc_norm = (cc or \"\").strip().lower()\n    return f\"{base}__{cc_norm}\" if (base and cc_norm) else base\ndef split_scrape_slug(scrape_slug: str) -> tuple[str, str | None]:\n    s = (scrape_slug or \"\").strip().lower()\n    if \"__\" in s:\n        base, cc = s.split(\"__\", 1)\n        return base, (cc or None)\n    return s, None",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "split_scrape_slug",
+        "kind": 2,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "def split_scrape_slug(scrape_slug: str) -> tuple[str, str | None]:\n    s = (scrape_slug or \"\").strip().lower()\n    if \"__\" in s:\n        base, cc = s.split(\"__\", 1)\n        return base, (cc or None)\n    return s, None\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
         "label": "supabase_headers",
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n    if upsert:\n        h[\"Prefer\"] = \"resolution=merge-duplicates,return=representation\"\n    return h\n# ──────────────────────────────────────────────────────────────────────────────\n# User hotel discovery (own + competitors)\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "def supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"\n    if upsert:\n        # PostgREST upsert\n        h[\"Prefer\"] = \"resolution=merge-duplicates,return=representation\"\n    return h\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -316,7 +374,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def get_own_hotel(user_id: str):\n    links = _get_user_links(user_id)\n    if not links:\n        return None\n    for l in links:\n        if l.get(\"link_type\") == \"own\":\n            slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n            if slug:\n                cc = (l.get(\"booking_cc\") or \"\").lower() or None\n                return {\"hotel_id\": l[\"hotel_id\"], \"name\": l[\"name\"] or \"My Hotel\", \"slug\": slug, \"cc\": cc}",
+        "peekOfCode": "def get_own_hotel(user_id: str):\n    links = _get_user_links(user_id)\n    if not links:\n        return None\n    for l in links:\n        if l.get(\"link_type\") == \"own\":\n            slug = _normalize_slug(l.get(\"booking_slug\") or \"\")\n            if slug:\n                cc = (l.get(\"booking_cc\") or \"\").lower() or None\n                return {",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -325,7 +383,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:\n    links = _get_user_links(user_id)\n    out: List[Dict[str, Any]] = []\n    for l in links:\n        if own_hotel_id and l[\"hotel_id\"] == own_hotel_id:\n            continue\n        slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n        if not slug:\n            continue\n        cc = (l.get(\"booking_cc\") or \"\").lower() or None",
+        "peekOfCode": "def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:\n    links = _get_user_links(user_id)\n    out: List[Dict[str, Any]] = []\n    for l in links:\n        if own_hotel_id and l.get(\"hotel_id\") == own_hotel_id:\n            continue\n        if (l.get(\"link_type\") or \"\").strip().lower() != \"competitor\":\n            continue\n        slug = _normalize_slug(l.get(\"booking_slug\") or \"\")\n        if not slug:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -343,7 +401,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def clean_price(text: str) -> Optional[float]:\n    if not text:\n        return None\n    txt = text.replace(\"\\u00A0\", \" \").replace(\",\", \".\")\n    m = re.search(r\"(\\d+(?:\\.\\d+)?)\", txt)\n    return float(m.group(1)) if m else None\ndef find_adults_in_text(text: str) -> Optional[int]:\n    if not text:\n        return None\n    t = \" \".join(text.split()).lower()",
+        "peekOfCode": "def clean_price(text: str) -> Optional[float]:\n    \"\"\"\n    Extract a monetary price from text, avoiding unrelated numbers (dates, room size, etc.).\n    - Only accepts currency-anchored candidates.\n    - If multiple candidates exist, chooses the LAST one in the string (usually \"Price € 163\").\n    \"\"\"\n    if not text:\n        return None\n    txt = text.replace(\"\\xa0\", \" \").strip()\n    candidates: List[float] = []",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -361,7 +419,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def row_level_occupancy_hint(row) -> Optional[int]:\n    try:\n        txt = row.inner_text() or \"\"\n        return find_adults_in_text(txt)\n    except Exception:\n        return None\ndef get_occupancy_from_name(name: str) -> int:\n    n = (name or \"\").lower()\n    if \"triple\" in n: return 3\n    if \"quadruple\" in n or \"family\" in n: return 4",
+        "peekOfCode": "def row_level_occupancy_hint(row) -> Optional[int]:\n    try:\n        txt = row.inner_text() or \"\"\n        return find_adults_in_text(txt)\n    except Exception:\n        return None\ndef get_occupancy_from_name(name: str) -> int:\n    n = (name or \"\").lower()\n    if \"quadruple\" in n or \"family\" in n:\n        return 4",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -370,16 +428,16 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def get_occupancy_from_name(name: str) -> int:\n    n = (name or \"\").lower()\n    if \"triple\" in n: return 3\n    if \"quadruple\" in n or \"family\" in n: return 4\n    if \"single\" in n: return 1\n    return 2\ndef is_valid_row(name: str) -> bool:\n    n = (name or \"\").lower()\n    return not any(x in n for x in [\"review\", \"score\", \"rating\"])\ndef build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, adults: int, lang=\"en-gb\"):",
+        "peekOfCode": "def get_occupancy_from_name(name: str) -> int:\n    n = (name or \"\").lower()\n    if \"quadruple\" in n or \"family\" in n:\n        return 4\n    if \"triple\" in n:\n        return 3\n    if \"single\" in n:\n        return 1\n    return 2\ndef is_valid_room_name(name: str) -> bool:",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "is_valid_row",
+        "label": "is_valid_room_name",
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def is_valid_row(name: str) -> bool:\n    n = (name or \"\").lower()\n    return not any(x in n for x in [\"review\", \"score\", \"rating\"])\ndef build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, adults: int, lang=\"en-gb\"):\n    cc_eff = (cc or DEFAULT_CC).lower()\n    base = f\"https://www.booking.com/hotel/{cc_eff}/{slug}.html\"\n    qs = {\n        \"checkin\": checkin,\n        \"checkout\": checkout,\n        \"group_adults\": adults,",
+        "peekOfCode": "def is_valid_room_name(name: str) -> bool:\n    n = (name or \"\").lower()\n    return not any(x in n for x in [\"review\", \"score\", \"rating\", \"availability\"])\ndef build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, adults: int, lang=\"en-gb\") -> str:\n    cc_eff = (cc or DEFAULT_CC).lower()\n    base = f\"https://www.booking.com/hotel/{cc_eff}/{slug}.html\"\n    qs = {\n        \"checkin\": checkin,\n        \"checkout\": checkout,\n        \"group_adults\": adults,",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -388,7 +446,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, adults: int, lang=\"en-gb\"):\n    cc_eff = (cc or DEFAULT_CC).lower()\n    base = f\"https://www.booking.com/hotel/{cc_eff}/{slug}.html\"\n    qs = {\n        \"checkin\": checkin,\n        \"checkout\": checkout,\n        \"group_adults\": adults,\n        \"group_children\": 0,\n        \"no_rooms\": 1,\n        \"selected_currency\": \"EUR\",",
+        "peekOfCode": "def build_hotel_url(cc: Optional[str], slug: str, checkin: str, checkout: str, adults: int, lang=\"en-gb\") -> str:\n    cc_eff = (cc or DEFAULT_CC).lower()\n    base = f\"https://www.booking.com/hotel/{cc_eff}/{slug}.html\"\n    qs = {\n        \"checkin\": checkin,\n        \"checkout\": checkout,\n        \"group_adults\": adults,\n        \"group_children\": 0,\n        \"no_rooms\": 1,\n        \"selected_currency\": \"EUR\",",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -397,7 +455,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:\n    \"\"\"\n    Look into the row (conditions + nearby policy text) and extract flags\n    about meals, cancellation and prepayment.\n    Returns a dict of booleans or None:\n      - breakfast_included\n      - dinner_included\n      - half_board\n      - free_cancellation\n      - nonrefundable",
+        "peekOfCode": "def parse_rate_attributes_from_row(row) -> Dict[str, Optional[bool]]:\n    flags: Dict[str, Optional[bool]] = {\n        \"breakfast_included\": None,\n        \"dinner_included\": None,\n        \"half_board\": None,\n        \"free_cancellation\": None,\n        \"nonrefundable\": None,\n        \"prepay_required\": None,\n        \"rate_plan\": None,\n    }",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -406,7 +464,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def build_rate_key(flags: dict) -> str:\n    \"\"\"\n    Stable fingerprint for a rate variant (ternary state so unknowns don't collide).\n    Order matters—keep it consistent with DB consumers.\n    \"\"\"\n    def tri(v, t):\n        return f\"{t}1\" if v is True else (f\"{t}0\" if v is False else f\"{t}?\")\n    return \"|\".join([\n        tri(flags.get(\"breakfast_included\"), \"b\"),\n        tri(flags.get(\"free_cancellation\"), \"rc\"),",
+        "peekOfCode": "def build_rate_key(flags: dict) -> str:\n    \"\"\"\n    Stable fingerprint for a rate variant (ternary state so unknowns don't collide).\n    \"\"\"\n    def tri(v, t):\n        return f\"{t}1\" if v is True else (f\"{t}0\" if v is False else f\"{t}?\")\n    return \"|\".join([\n        tri(flags.get(\"breakfast_included\"), \"b\"),\n        tri(flags.get(\"free_cancellation\"), \"rc\"),\n        tri(flags.get(\"nonrefundable\"), \"nrf\"),",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -415,7 +473,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def extract_price_with_context(price_el) -> (Optional[float], Optional[int]):\n    price = None\n    try:\n        price = clean_price(price_el.inner_text())\n    except Exception:\n        return None, None\n    if price is None:\n        return None, None\n    try:\n        context_text = price_el.evaluate(",
+        "peekOfCode": "def extract_price_with_context(price_el) -> Tuple[Optional[float], Optional[int]]:\n    try:\n        price = clean_price(price_el.inner_text())\n    except Exception:\n        return None, None\n    if price is None:\n        return None, None\n    # small DOM context for occupancy hints\n    try:\n        context_text = price_el.evaluate(",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -424,7 +482,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:\n    \"\"\"Collect rate variants for a given adults count.\n    Booking often structures the table like:\n      - a \"room name\" row\n      - followed by 1..N \"variant\" rows (different cancellation/meal/payment)\n        where the room name is NOT repeated.\n    Older logic assumed all flags lived on the room-name row, which caused\n    dinner/non-refundable variants to be missed or overwritten.\n    \"\"\"\n    results: List[Dict[str, Any]] = []",
+        "peekOfCode": "def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:\n    \"\"\"\n    Classic Booking table logic:\n      - a room-name row\n      - followed by 1..N variant rows\n    We parse flags per variant row and collect prices that correspond to the current adults.\n    \"\"\"\n    results: List[Dict[str, Any]] = []\n    table = None\n    for table_sel in ROOM_TABLE_SELECTORS:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -433,7 +491,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bool]] = None):\n    def cancelled() -> bool:\n        return bool(should_cancel and should_cancel())\n    try:\n        if cancelled(): return\n        page.wait_for_selector(\"#onetrust-accept-btn-handler\", timeout=3000)\n        page.click(\"#onetrust-accept-btn-handler\")\n    except TimeoutError:\n        pass\n    for _ in range(3):",
+        "peekOfCode": "def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bool]] = None):\n    def cancelled() -> bool:\n        return bool(should_cancel and should_cancel())\n    # cookie accept (best-effort)\n    try:\n        if cancelled():\n            return\n        page.wait_for_selector(\"#onetrust-accept-btn-handler\", timeout=3000)\n        page.click(\"#onetrust-accept-btn-handler\")\n    except Exception:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -442,7 +500,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def scrape_hotel_for_dates(\n    name: str,\n    slug: str,\n    cc: Optional[str],\n    checkin: str,\n    checkout: str,\n    should_cancel: Optional[Callable[[], bool]] = None,\n) -> List[dict]:\n    out: List[dict] = []\n    with sync_playwright() as p:",
+        "peekOfCode": "def scrape_hotel_for_dates(\n    name: str,\n    slug: str,\n    cc: Optional[str],\n    checkin: str,\n    checkout: str,\n    should_cancel: Optional[Callable[[], bool]] = None,\n) -> List[dict]:\n    \"\"\"\n    Returns raw rows (may contain multiple variants), keyed slug is applied by the worker.",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -451,7 +509,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:\n    # <<< CHANGED >>> include rate_key in the key so variants are preserved\n    best: Dict[tuple, dict] = {}\n    for r in rows:\n        slug_lower = (r[\"slug\"] or \"\").lower()\n        rate_key = r.get(\"rate_key\") or \"\"\n        key = (slug_lower, r[\"checkin\"], r[\"room\"], int(r[\"occupancy\"]), rate_key)\n        price = r[\"price\"]\n        if price is None:\n            continue",
+        "peekOfCode": "def dedupe_min_per_room_and_occupancy(rows: List[dict]) -> List[dict]:\n    best: Dict[tuple, dict] = {}\n    for r in rows:\n        slug_lower = (r.get(\"slug\") or \"\").lower()\n        rate_key = (r.get(\"rate_key\") or \"\").strip() or \"b?|rc?|nrf?|pp?|din?|hb?\"\n        key = (slug_lower, (r.get(\"checkin\") or \"\")[:10], r.get(\"room\"), int(r.get(\"occupancy\") or 0), rate_key)\n        price = r.get(\"price\")\n        if not key[0] or not key[1] or not key[2] or key[3] <= 0:\n            continue\n        try:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -460,7 +518,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "SUPABASE_URL = os.getenv(\"SUPABASE_URL\") or os.getenv(\"NEXT_PUBLIC_SUPABASE_URL\")\nSUPABASE_KEY = (\n    os.getenv(\"SUPABASE_SERVICE_ROLE_KEY\")\n    or os.getenv(\"SUPABASE_KEY\")\n    or os.getenv(\"NEXT_PUBLIC_SUPABASE_ANON_KEY\")\n)\nassert SUPABASE_URL and SUPABASE_KEY, \"Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY\"\nDEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (",
+        "peekOfCode": "SUPABASE_URL = os.getenv(\"SUPABASE_URL\") or os.getenv(\"NEXT_PUBLIC_SUPABASE_URL\")\nSUPABASE_KEY = (\n    os.getenv(\"SUPABASE_SERVICE_ROLE_KEY\")\n    or os.getenv(\"SUPABASE_KEY\")\n    or os.getenv(\"NEXT_PUBLIC_SUPABASE_ANON_KEY\")\n)\nassert SUPABASE_URL and SUPABASE_KEY, \"Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY\"\nDEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"0\") == \"1\"\nCOMMON_CCS = (",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -469,7 +527,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "SUPABASE_KEY = (\n    os.getenv(\"SUPABASE_SERVICE_ROLE_KEY\")\n    or os.getenv(\"SUPABASE_KEY\")\n    or os.getenv(\"NEXT_PUBLIC_SUPABASE_ANON_KEY\")\n)\nassert SUPABASE_URL and SUPABASE_KEY, \"Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY\"\nDEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")",
+        "peekOfCode": "SUPABASE_KEY = (\n    os.getenv(\"SUPABASE_SERVICE_ROLE_KEY\")\n    or os.getenv(\"SUPABASE_KEY\")\n    or os.getenv(\"NEXT_PUBLIC_SUPABASE_ANON_KEY\")\n)\nassert SUPABASE_URL and SUPABASE_KEY, \"Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY\"\nDEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"0\") == \"1\"\nCOMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -478,7 +536,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "DEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")\n    or \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\"\n).split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (",
+        "peekOfCode": "DEFAULT_CC = (os.getenv(\"DEFAULT_CC\", \"si\") or \"si\").lower()\nRESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"0\") == \"1\"\nCOMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")\n    or \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\"\n).split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"30000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"10000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -487,7 +545,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "RESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"1\") == \"1\"\nCOMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")\n    or \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\"\n).split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"",
+        "peekOfCode": "RESOLVE_CC_IF_MISSING = os.getenv(\"RESOLVE_CC_IF_MISSING\", \"0\") == \"1\"\nCOMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")\n    or \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\"\n).split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"30000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"10000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -496,7 +554,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "COMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")\n    or \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\"\n).split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"",
+        "peekOfCode": "COMMON_CCS = (\n    os.getenv(\"COMMON_CCS\")\n    or \"si,at,de,it,hr,hu,cz,sk,pl,fr,es,pt,nl,be,dk,se,no,fi,gb,ie,ch,gr\"\n).split(\",\")\nPAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"30000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"10000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -505,7 +563,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "PAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"20000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers",
+        "peekOfCode": "PAGE_GOTO_TIMEOUT_MS = int(os.getenv(\"PAGE_GOTO_TIMEOUT_MS\", \"30000\"))\nWAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"10000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -514,7 +572,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "WAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"8000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "WAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"10000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -523,7 +581,16 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "SCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nUSER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:",
+        "peekOfCode": "SCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Slug helpers (country-aware selection)",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "HEADLESS",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "HEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Slug helpers (country-aware selection)\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -532,7 +599,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "USER_AGENT = (\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n    \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n    \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}",
+        "peekOfCode": "USER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# ──────────────────────────────────────────────────────────────────────────────\n# Slug helpers (country-aware selection)\n# ──────────────────────────────────────────────────────────────────────────────\ndef to_scrape_slug(base_slug: str, cc: str | None) -> str:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -541,7 +608,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\",\"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\",\"a:has-text('Show all')\",\n    \"a:has-text('Show more')\",\"a:has-text('See all rooms')\",\n]\nROOM_TABLE_SELECTORS = [\"#hprt-table\", \"table.hprt-table\", \"[data-testid='hprt-table']\"]\nROW_SELECTORS = [\"tr.js-rt-block-row\", \"table.hprt-table tr\", \"[data-testid='room-row']\"]\nPRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",",
+        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\", \"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\", \"a:has-text('Show all')\",\n    \"a:has-text('Show more')\", \"a:has-text('See all rooms')\",\n]\nROOM_TABLE_SELECTORS = [\"#hprt-table\", \"table.hprt-table\", \"[data-testid='hprt-table']\"]\nPRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -550,16 +617,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "ROOM_TABLE_SELECTORS = [\"#hprt-table\", \"table.hprt-table\", \"[data-testid='hprt-table']\"]\nROW_SELECTORS = [\"tr.js-rt-block-row\", \"table.hprt-table tr\", \"[data-testid='room-row']\"]\nPRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-inline-price\",\n]\nOCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "ROW_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "ROW_SELECTORS = [\"tr.js-rt-block-row\", \"table.hprt-table tr\", \"[data-testid='room-row']\"]\nPRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-inline-price\",\n]\nOCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",",
+        "peekOfCode": "ROOM_TABLE_SELECTORS = [\"#hprt-table\", \"table.hprt-table\", \"[data-testid='hprt-table']\"]\nPRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",\n    \"[data-testid='recommended-price']\",\n    \".prco-inline-price\",\n]\nOCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -568,7 +626,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "PRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",\n    \".prco-inline-price\",\n]\nOCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\b(\\d+)\\s+adults?\\b\",",
+        "peekOfCode": "PRICE_SELECTORS = [\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \"[data-testid='price-and-discounted-price']\",\n    \"[data-testid='recommended-price']\",\n    \".prco-inline-price\",\n]\nOCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -577,26 +635,17 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "OCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\b(\\d+)\\s+adults?\\b\",\n    r\"\\bfor\\s+(\\d+)\\s+people\\b\",\n    r\"\\b(\\d+)\\s+guests?\\b\",\n    r\"\\bsleeps\\s+(\\d+)\\b\",\n]\ndef clean_price(text: str) -> Optional[float]:\n    if not text:",
+        "peekOfCode": "OCC_PATTERNS = [\n    r\"\\bfor\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\bprice\\s+for\\s+(\\d+)\\s+adults?\\b\",\n    r\"\\b(\\d+)\\s+adults?\\b\",\n    r\"\\bfor\\s+(\\d+)\\s+people\\b\",\n    r\"\\b(\\d+)\\s+guests?\\b\",\n    r\"\\bsleeps\\s+(\\d+)\\b\",\n]\n# Currency anchored extraction to avoid \"1124\" from random numbers\n_CURRENCY_PATTERNS = [",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "to_scrape_slug",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def to_scrape_slug(base_slug: str, cc: str | None) -> str:\n    base = (base_slug or \"\").strip().lower()\n    cc_norm = (cc or \"\").strip().lower()\n    return f\"{base}__{cc_norm}\" if cc_norm else base\ndef split_scrape_slug(scrape_slug: str) -> tuple[str, str | None]:\n    s = (scrape_slug or \"\").strip().lower()\n    if \"__\" in s:\n        base, cc = s.split(\"__\", 1)\n        return base, (cc or None)\n    return s, None",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "split_scrape_slug",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def split_scrape_slug(scrape_slug: str) -> tuple[str, str | None]:\n    s = (scrape_slug or \"\").strip().lower()\n    if \"__\" in s:\n        base, cc = s.split(\"__\", 1)\n        return base, (cc or None)\n    return s, None\n# ──────────────────────────────────────────────────────────────────────────────\n# Config\n# ──────────────────────────────────────────────────────────────────────────────\nMAX_WORKERS = int(os.getenv(\"MAX_WORKERS\", \"4\"))",
-        "detail": "worker_poll",
+        "label": "_CURRENCY_PATTERNS",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "_CURRENCY_PATTERNS = [\n    r\"(?:€|eur)\\s*([0-9][0-9\\s\\.,]+)\",\n    r\"([0-9][0-9\\s\\.,]+)\\s*(?:€|eur)\",\n    r\"(?:\\$|usd)\\s*([0-9][0-9\\s\\.,]+)\",\n    r\"([0-9][0-9\\s\\.,]+)\\s*(?:\\$|usd)\",\n    r\"(?:£|gbp)\\s*([0-9][0-9\\s\\.,]+)\",\n    r\"([0-9][0-9\\s\\.,]+)\\s*(?:£|gbp)\",\n]\ndef _parse_price_number(raw: str) -> Optional[float]:\n    if not raw:",
+        "detail": "scraper_core",
         "documentation": {}
     },
     {
@@ -667,7 +716,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    try:\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\"},\n            patch,\n            prefer_return=False,\n        )\n    except HTTPError as e:\n        print(",
+        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    http_patch(\n        f\"/rest/v1/{JOBS_TABLE}\",\n        {\"id\": f\"eq.{job_id}\"},\n        patch,\n        prefer_return=False,\n    )\ndef set_heartbeat(job_id: str):\n    try:\n        http_patch(",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -703,7 +752,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def archive_previous_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/{HISTORY_FUNC}\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n            upsert=False,\n            timeout_sec=20,\n        )\n        print(",
+        "peekOfCode": "def archive_previous_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/{HISTORY_FUNC}\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n            upsert=False,\n            timeout_sec=20,\n        )\n        try:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -712,7 +761,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            \"/rest/v1/rpc/fn_delete_day_rows\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n            upsert=False,\n            timeout_sec=20,\n        )\n        print(",
+        "peekOfCode": "def delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/{DELETE_DAY_FUNC}\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n            upsert=False,\n            timeout_sec=20,\n        )\n        try:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -730,7 +779,16 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def insert_soldout_alert(user_id: str, slug: str, checkin: str):\n    payload = {\n        \"type\": \"AUTO_SOLD_OUT\",\n        \"user_id\": user_id,\n        \"slug\": slug.lower(),\n        \"checkin\": checkin,\n        \"price\": None,\n        \"payload\": {\n            \"source\": \"worker_poll\",\n            \"reason\": \"no rooms parsed for any occupancy\",",
+        "peekOfCode": "def insert_soldout_alert(user_id: str, slug: str, checkin: str):\n    payload = {\n        \"type\": \"AUTO_SOLD_OUT\",\n        \"user_id\": user_id,\n        \"slug\": slug.lower(),\n        \"checkin\": checkin,\n        \"price\": None,\n        \"payload\": {\"source\": \"worker_poll\", \"reason\": \"no rooms parsed for any occupancy\"},\n    }\n    try:",
+        "detail": "worker_poll",
+        "documentation": {}
+    },
+    {
+        "label": "clear_soldout_marker",
+        "kind": 2,
+        "importPath": "worker_poll",
+        "description": "worker_poll",
+        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"user_id\": f\"eq.{user_id}\", \"slug\": f\"eq.{slug.lower()}\", \"checkin\": f\"eq.{checkin}\"},\n        )\n        print(f\"🧽 Cleared sold-out marker for {slug} {checkin}\")\n    except Exception as e:\n        print(\"⚠️ clear_soldout_marker failed:\", type(e).__name__, str(e)[:200])\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -740,15 +798,6 @@
         "importPath": "worker_poll",
         "description": "worker_poll",
         "peekOfCode": "def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):\n    if not rows:\n        return\n    clean: List[Dict[str, Any]] = []\n    for r in rows:\n        base = {\n            \"user_id\": user_id,\n            \"slug\": r.get(\"slug\"),\n            \"hotel\": r.get(\"hotel\"),\n            \"checkin\": r.get(\"checkin\"),",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "clear_soldout_marker",
-        "kind": 2,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\n                \"user_id\": f\"eq.{user_id}\",\n                \"slug\": f\"eq.{slug.lower()}\",\n                \"checkin\": f\"eq.{checkin}\",\n            },\n        )",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -775,7 +824,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "MAX_WORKERS = int(os.getenv(\"MAX_WORKERS\", \"4\"))\nMAX_JOB_DURATION_SEC = int(os.getenv(\"MAX_JOB_DURATION_SEC\", \"5400\"))\nHEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nHOTEL_STEP_TIMEOUT_SEC = int(os.getenv(\"HOTEL_STEP_TIMEOUT_SEC\", \"120\"))\n# If we don't see ANY step finish for this long, assume Playwright is hung and\n# hard-exit the process so the platform restarts the service.\nNO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))",
+        "peekOfCode": "MAX_WORKERS = int(os.getenv(\"MAX_WORKERS\", \"4\"))\nMAX_JOB_DURATION_SEC = int(os.getenv(\"MAX_JOB_DURATION_SEC\", \"5400\"))  # 90 min\nHEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\n# If we don't see ANY step finish for this long, assume Playwright is hung and\n# hard-exit the process so the platform restarts the service.\nNO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))  # 30 min\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -784,7 +833,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "MAX_JOB_DURATION_SEC = int(os.getenv(\"MAX_JOB_DURATION_SEC\", \"5400\"))\nHEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nHOTEL_STEP_TIMEOUT_SEC = int(os.getenv(\"HOTEL_STEP_TIMEOUT_SEC\", \"120\"))\n# If we don't see ANY step finish for this long, assume Playwright is hung and\n# hard-exit the process so the platform restarts the service.\nNO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))",
+        "peekOfCode": "MAX_JOB_DURATION_SEC = int(os.getenv(\"MAX_JOB_DURATION_SEC\", \"5400\"))  # 90 min\nHEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\n# If we don't see ANY step finish for this long, assume Playwright is hung and\n# hard-exit the process so the platform restarts the service.\nNO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))  # 30 min\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -793,7 +842,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "HEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nHOTEL_STEP_TIMEOUT_SEC = int(os.getenv(\"HOTEL_STEP_TIMEOUT_SEC\", \"120\"))\n# If we don't see ANY step finish for this long, assume Playwright is hung and\n# hard-exit the process so the platform restarts the service.\nNO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"",
+        "peekOfCode": "HEARTBEAT_EVERY_STEPS = int(os.getenv(\"HEARTBEAT_EVERY_STEPS\", \"8\"))\nSTALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\n# If we don't see ANY step finish for this long, assume Playwright is hung and\n# hard-exit the process so the platform restarts the service.\nNO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))  # 30 min\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -802,16 +851,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "STALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\nHOTEL_STEP_TIMEOUT_SEC = int(os.getenv(\"HOTEL_STEP_TIMEOUT_SEC\", \"120\"))\n# If we don't see ANY step finish for this long, assume Playwright is hung and\n# hard-exit the process so the platform restarts the service.\nNO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"",
-        "detail": "worker_poll",
-        "documentation": {}
-    },
-    {
-        "label": "HOTEL_STEP_TIMEOUT_SEC",
-        "kind": 5,
-        "importPath": "worker_poll",
-        "description": "worker_poll",
-        "peekOfCode": "HOTEL_STEP_TIMEOUT_SEC = int(os.getenv(\"HOTEL_STEP_TIMEOUT_SEC\", \"120\"))\n# If we don't see ANY step finish for this long, assume Playwright is hung and\n# hard-exit the process so the platform restarts the service.\nNO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"",
+        "peekOfCode": "STALE_JOB_MINUTES = int(os.getenv(\"STALE_JOB_MINUTES\", \"90\"))\n# If we don't see ANY step finish for this long, assume Playwright is hung and\n# hard-exit the process so the platform restarts the service.\nNO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))  # 30 min\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -820,7 +860,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "NO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")",
+        "peekOfCode": "NO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))  # 30 min\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nDELETE_DAY_FUNC = \"fn_delete_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -829,7 +869,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "HTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"",
+        "peekOfCode": "HTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nDELETE_DAY_FUNC = \"fn_delete_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Preferred ON CONFLICT key (variants preserved)",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -838,7 +878,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "HTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)",
+        "peekOfCode": "HTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nDELETE_DAY_FUNC = \"fn_delete_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Preferred ON CONFLICT key (variants preserved)\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -847,7 +887,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)\n_raw_allowed_default = \",\".join([",
+        "peekOfCode": "RETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nDELETE_DAY_FUNC = \"fn_delete_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Preferred ON CONFLICT key (variants preserved)\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\n# Legacy key (variants overwritten)",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -856,7 +896,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",",
+        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nDELETE_DAY_FUNC = \"fn_delete_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Preferred ON CONFLICT key (variants preserved)\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\n# Legacy key (variants overwritten)\nRAW_ON_CONFLICT_LEGACY = os.getenv(\"RAW_ON_CONFLICT_LEGACY\", \"user_id,slug,checkin,room,occupancy\")",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -865,7 +905,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",",
+        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nDELETE_DAY_FUNC = \"fn_delete_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Preferred ON CONFLICT key (variants preserved)\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\n# Legacy key (variants overwritten)\nRAW_ON_CONFLICT_LEGACY = os.getenv(\"RAW_ON_CONFLICT_LEGACY\", \"user_id,slug,checkin,room,occupancy\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -874,7 +914,16 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "HISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",",
+        "peekOfCode": "HISTORY_FUNC = \"fn_archive_day_rows\"\nDELETE_DAY_FUNC = \"fn_delete_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Preferred ON CONFLICT key (variants preserved)\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\n# Legacy key (variants overwritten)\nRAW_ON_CONFLICT_LEGACY = os.getenv(\"RAW_ON_CONFLICT_LEGACY\", \"user_id,slug,checkin,room,occupancy\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([",
+        "detail": "worker_poll",
+        "documentation": {}
+    },
+    {
+        "label": "DELETE_DAY_FUNC",
+        "kind": 5,
+        "importPath": "worker_poll",
+        "description": "worker_poll",
+        "peekOfCode": "DELETE_DAY_FUNC = \"fn_delete_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Preferred ON CONFLICT key (variants preserved)\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\n# Legacy key (variants overwritten)\nRAW_ON_CONFLICT_LEGACY = os.getenv(\"RAW_ON_CONFLICT_LEGACY\", \"user_id,slug,checkin,room,occupancy\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -883,7 +932,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "SOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",",
+        "peekOfCode": "SOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# Preferred ON CONFLICT key (variants preserved)\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\n# Legacy key (variants overwritten)\nRAW_ON_CONFLICT_LEGACY = os.getenv(\"RAW_ON_CONFLICT_LEGACY\", \"user_id,slug,checkin,room,occupancy\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -892,7 +941,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "ALERTS_TABLE = \"alert_events\"\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])",
+        "peekOfCode": "ALERTS_TABLE = \"alert_events\"\n# Preferred ON CONFLICT key (variants preserved)\nRAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\n# Legacy key (variants overwritten)\nRAW_ON_CONFLICT_LEGACY = os.getenv(\"RAW_ON_CONFLICT_LEGACY\", \"user_id,slug,checkin,room,occupancy\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -901,7 +950,16 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])\nRAW_ALLOWED_KEYS = {",
+        "peekOfCode": "RAW_ON_CONFLICT = os.getenv(\"RAW_ON_CONFLICT\", \"user_id,slug,checkin,room,occupancy,rate_key\")\n# Legacy key (variants overwritten)\nRAW_ON_CONFLICT_LEGACY = os.getenv(\"RAW_ON_CONFLICT_LEGACY\", \"user_id,slug,checkin,room,occupancy\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])",
+        "detail": "worker_poll",
+        "documentation": {}
+    },
+    {
+        "label": "RAW_ON_CONFLICT_LEGACY",
+        "kind": 5,
+        "importPath": "worker_poll",
+        "description": "worker_poll",
+        "peekOfCode": "RAW_ON_CONFLICT_LEGACY = os.getenv(\"RAW_ON_CONFLICT_LEGACY\", \"user_id,slug,checkin,room,occupancy\")\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])\nRAW_ALLOWED_KEYS = {\n    k.strip()",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -910,7 +968,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n# IMPORTANT: allow-list the exact columns we upsert (includes 'rate_key' for variants)\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])\nRAW_ALLOWED_KEYS = {\n    k.strip()",
+        "peekOfCode": "RAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])\nRAW_ALLOWED_KEYS = {\n    k.strip()\n    for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\")",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -937,7 +995,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    # hotel['slug'] may be either a plain booking slug or a \"<slug>__<cc>\" scrape slug\n    stored_slug = (hotel.get(\"scrape_slug\") or hotel.get(\"slug\") or \"\").strip().lower()\n    base_slug, cc_from_slug = split_scrape_slug(stored_slug)\n    try:\n        cc = (\n            (hotel.get(\"cc\") or \"\").strip().lower()\n            or (cc_from_slug or \"\")\n            or (resolve_cc_for_slug(base_slug) if RESOLVE_CC_IF_MISSING else None)",
+        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    stored_slug = (hotel.get(\"scrape_slug\") or hotel.get(\"slug\") or \"\").strip().lower()\n    base_slug, cc_from_slug = split_scrape_slug(stored_slug)\n    try:\n        cc = (\n            (hotel.get(\"cc\") or \"\").strip().lower()\n            or (cc_from_slug or \"\")\n            or (resolve_cc_for_slug(base_slug) if RESOLVE_CC_IF_MISSING else None)\n            or DEFAULT_CC",
         "detail": "worker_poll",
         "documentation": {}
     }
