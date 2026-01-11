@@ -90,6 +90,252 @@ def _normalize_slug(v: str) -> str:
     t = re.sub(r"\.([a-z]{2}(?:-[a-z]{2})?)?\.html?$", "", t, flags=re.I)
     return t.replace(" ", "")
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# User hotel discovery (own + competitors)
+#
+# Data model recap (your project):
+#   public.user_hotels(user_id, hotel_id, link_type)
+#   public.hotels(id, name, url, ...)
+#   public.hotel_profiles(hotel_id, booking_slug, booking_cc, updated_at, ...)
+#
+# We intentionally join through `hotels(hotel_profiles(...))` because PostgREST
+# relationship discovery relies on FKs. In your schema you have hotels ↔ hotel_profiles
+# (via hotel_id), and user_hotels ↔ hotels (via hotel_id). There is *not* necessarily
+# a direct FK user_hotels ↔ hotel_profiles, so we avoid `user_hotels(hotel_profiles(...))`.
+
+def _get_user_links(user_id: str) -> List[dict]:
+    """Return user's linked hotels with resolved booking slug + cc.
+
+    Output fields per row:
+      hotel_id, link_type, name, url, booking_slug, booking_cc
+    """
+    url = f"{SUPABASE_URL}/rest/v1/user_hotels"
+    params = {
+        "select": "hotel_id,link_type,hotels(name,url,hotel_profiles(booking_slug,booking_cc,updated_at))",
+        "user_id": f"eq.{user_id}",
+    }
+    # Sort so newest hotel_profiles wins when there are multiple versions
+    # (PostgREST nests arrays; we handle both dict and list cases below)
+    r = requests.get(url, params=params, headers=supabase_headers(json_pref=False), timeout=20)
+    r.raise_for_status()
+    rows = r.json() or []
+
+    out: List[dict] = []
+    for row in rows:
+        h = (row.get("hotels") or {})
+        prof = h.get("hotel_profiles")
+
+        # hotel_profiles can come back as an array (1-to-many) or object.
+        bslug, bcc = "", ""
+        if isinstance(prof, list) and prof:
+            # prefer newest by updated_at if present
+            def _ts(p):
+                return (p.get("updated_at") or "")
+            prof_sorted = sorted(prof, key=_ts, reverse=True)
+            bslug = (prof_sorted[0].get("booking_slug") or "").strip()
+            bcc = (prof_sorted[0].get("booking_cc") or "").strip().lower()
+        elif isinstance(prof, dict) and prof:
+            bslug = (prof.get("booking_slug") or "").strip()
+            bcc = (prof.get("booking_cc") or "").strip().lower()
+
+        out.append({
+            "hotel_id": row.get("hotel_id"),
+            "link_type": (row.get("link_type") or "").strip(),
+            "name": (h.get("name") or "").strip(),
+            "url": (h.get("url") or "").strip(),
+            "booking_slug": bslug,
+            "booking_cc": bcc or "",
+        })
+    return out
+
+
+def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:
+    links = _get_user_links(user_id)
+    if not links:
+        return None
+    for l in links:
+        if l.get("link_type") == "own":
+            slug = _normalize_slug(l.get("booking_slug") or l.get("url") or "")
+            if slug:
+                cc = (l.get("booking_cc") or "").lower() or None
+                return {
+                    "hotel_id": l.get("hotel_id"),
+                    "name": l.get("name") or "My Hotel",
+                    "slug": slug,
+                    "cc": cc,
+                }
+
+    # fallback: first link
+    first = links[0]
+    slug = _normalize_slug(first.get("booking_slug") or first.get("url") or "")
+    if not slug:
+        return None
+    cc = (first.get("booking_cc") or "").lower() or None
+    return {
+        "hotel_id": first.get("hotel_id"),
+        "name": first.get("name") or "My Hotel",
+        "slug": slug,
+        "cc": cc,
+    }
+
+
+def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:
+    links = _get_user_links(user_id)
+    out: List[Dict[str, Any]] = []
+    for l in links:
+        if own_hotel_id and l.get("hotel_id") == own_hotel_id:
+            continue
+        if l.get("link_type") != "competitor":
+            continue
+        slug = _normalize_slug(l.get("booking_slug") or l.get("url") or "")
+        if not slug:
+            continue
+        cc = (l.get("booking_cc") or "").lower() or None
+        out.append({
+            "hotel_id": l.get("hotel_id"),
+            "name": l.get("name") or "",
+            "slug": slug,
+            "cc": cc,
+        })
+    return out
+#   public.hotels(id, name, url, ...)
+#   public.hotel_profiles(hotel_id, booking_slug, booking_cc, updated_at, ...)
+#
+# Relationships in Supabase schema cache can be finicky if you don't have FKs.
+# For the Python worker we avoid depending on implicit PostgREST relationships
+# between user_hotels ↔ hotel_profiles.
+#
+# We instead:
+#   1) Fetch user_hotels joined to hotels (this relationship usually exists).
+#   2) Fetch hotel_profiles directly by hotel_id.
+#   3) Merge in Python.
+#
+# This keeps the worker stable even when the dashboard/API routes hit
+# "Could not find relationship between 'user_hotels' and 'hotel_profiles'".
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _http_get(path: str, params: Dict[str, Any], timeout: float = 20.0) -> requests.Response:
+    r = requests.get(
+        f"{SUPABASE_URL}{path}",
+        params=params,
+        headers=supabase_headers(json_pref=False),
+        timeout=timeout,
+    )
+    r.raise_for_status()
+    return r
+
+
+def _get_user_links(user_id: str) -> List[dict]:
+    """Return flattened user hotel links with booking_slug + booking_cc."""
+    if not user_id:
+        return []
+
+    # 1) user_hotels + hotels
+    r = _http_get(
+        "/rest/v1/user_hotels",
+        {
+            "select": "hotel_id,link_type,inserted_at,hotels(name,url)",
+            "user_id": f"eq.{user_id}",
+            "order": "inserted_at.asc",
+        },
+    )
+    links = r.json() or []
+    hotel_ids = [x.get("hotel_id") for x in links if x.get("hotel_id")]
+    if not hotel_ids:
+        return []
+
+    # 2) hotel_profiles by hotel_id (prefer latest updated_at)
+    # NOTE: your hotel_profiles does NOT have inserted_at; it has updated_at.
+    # Also: PostgREST IN syntax: in.(id1,id2,...)
+    in_list = ",".join(hotel_ids)
+    pr = _http_get(
+        "/rest/v1/hotel_profiles",
+        {
+            "select": "hotel_id,booking_slug,booking_cc,updated_at",
+            "hotel_id": f"in.({in_list})",
+            "order": "updated_at.desc.nullslast",
+        },
+    )
+    prof_rows = pr.json() or []
+
+    # Pick latest profile per hotel_id
+    prof_by_hotel: Dict[str, Dict[str, Any]] = {}
+    for p in prof_rows:
+        hid = p.get("hotel_id")
+        if hid and hid not in prof_by_hotel:
+            prof_by_hotel[hid] = p
+
+    out: List[dict] = []
+    for row in links:
+        hid = row.get("hotel_id")
+        h = row.get("hotels") or {}
+        prof = prof_by_hotel.get(hid) or {}
+        out.append(
+            {
+                "hotel_id": hid,
+                "link_type": (row.get("link_type") or "").strip(),
+                "inserted_at": row.get("inserted_at"),
+                "name": (h.get("name") or "").strip(),
+                "url": (h.get("url") or "").strip(),
+                "booking_slug": (prof.get("booking_slug") or "").strip(),
+                "booking_cc": (prof.get("booking_cc") or "").strip().lower() or "",
+            }
+        )
+
+    return out
+
+
+def get_own_hotel(user_id: str) -> Optional[Dict[str, Any]]:
+    links = _get_user_links(user_id)
+    if not links:
+        return None
+
+    # Prefer explicit link_type='own'
+    for l in links:
+        if l.get("link_type") == "own":
+            slug = _normalize_slug(l.get("booking_slug") or l.get("url") or "")
+            if slug:
+                cc = (l.get("booking_cc") or "").lower() or None
+                return {
+                    "hotel_id": l.get("hotel_id"),
+                    "name": l.get("name") or "My Hotel",
+                    "slug": slug,
+                    "cc": cc,
+                }
+
+    # Fallback to first link
+    first = links[0]
+    slug = _normalize_slug(first.get("booking_slug") or first.get("url") or "")
+    if not slug:
+        return None
+    cc = (first.get("booking_cc") or "").lower() or None
+    return {
+        "hotel_id": first.get("hotel_id"),
+        "name": first.get("name") or "My Hotel",
+        "slug": slug,
+        "cc": cc,
+    }
+
+
+def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:
+    links = _get_user_links(user_id)
+    out: List[Dict[str, Any]] = []
+    for l in links:
+        hid = l.get("hotel_id")
+        if own_hotel_id and hid == own_hotel_id:
+            continue
+        if (l.get("link_type") or "") != "competitor":
+            continue
+
+        slug = _normalize_slug(l.get("booking_slug") or l.get("url") or "")
+        if not slug:
+            continue
+        cc = (l.get("booking_cc") or "").lower() or None
+        out.append({"hotel_id": hid, "name": l.get("name") or "", "slug": slug, "cc": cc})
+
+    return out
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Country resolver (optional)
 # ──────────────────────────────────────────────────────────────────────────────
