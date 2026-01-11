@@ -2,13 +2,22 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Worker that polls scrape_jobs, scrapes Booking.com via scraper_core,
 # and upserts to Supabase room_prices_raw. Includes watchdog + retries.
+#
+# Important robustness decisions:
+# - DO NOT rely on PostgREST "relationship cache" between user_hotels and hotel_profiles
+#   (you hit that error multiple times). Instead: fetch user_hotels, hotels, hotel_profiles
+#   separately and merge by hotel_id.
+# - Adaptive upsert conflict keys:
+#   Prefer (user_id,slug,checkin,room,occupancy,rate_key) if DB supports it,
+#   else fallback to (user_id,slug,checkin,room,occupancy).
+# - Always upsert the variant flags (breakfast/dinner/etc) so your DayPopup filters work.
 # ──────────────────────────────────────────────────────────────────────────────
 
 import os
 import time
 import datetime as dt
 from datetime import timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import threading
 import random
@@ -17,14 +26,11 @@ from requests import HTTPError
 
 from scraper_core import (
     SUPABASE_URL,
-    SUPABASE_KEY,
     supabase_headers,
     _normalize_slug,
-    get_own_hotel,
-    get_competitor_hotels,
-    resolve_cc_for_slug,
-    RESOLVE_CC_IF_MISSING,
     DEFAULT_CC,
+    RESOLVE_CC_IF_MISSING,
+    resolve_cc_for_slug,
     scrape_hotel_for_dates,
     dedupe_min_per_room_and_occupancy,
 )
@@ -38,7 +44,7 @@ def to_scrape_slug(base_slug: str, cc: Optional[str]) -> str:
     cc_norm = (cc or "").strip().lower()
     return f"{base}__{cc_norm}" if cc_norm else base
 
-def split_scrape_slug(scrape_slug: str) -> tuple[str, Optional[str]]:
+def split_scrape_slug(scrape_slug: str) -> Tuple[str, Optional[str]]:
     s = (scrape_slug or "").strip().lower()
     if "__" in s:
         base, cc = s.split("__", 1)
@@ -64,9 +70,10 @@ HISTORY_FUNC = "fn_archive_day_rows"
 SOLDOUT_TABLE = "soldout_markers"
 ALERTS_TABLE = "alert_events"
 
-# IMPORTANT: match your DB unique constraint. If your unique is still without rate_key,
-# set RAW_ON_CONFLICT accordingly (default here is WITHOUT rate_key).
-RAW_ON_CONFLICT = os.getenv("RAW_ON_CONFLICT", "user_id,slug,checkin,room,occupancy,rate_key")
+# Try to preserve variants (preferred), but auto-fallback if DB doesn't support it.
+PREFERRED_ON_CONFLICT = "user_id,slug,checkin,room,occupancy,rate_key"
+FALLBACK_ON_CONFLICT = "user_id,slug,checkin,room,occupancy"
+
 RAW_INCLUDE_JOB_ID = os.getenv("RAW_INCLUDE_JOB_ID", "0") == "1"
 
 _raw_allowed_default = ",".join([
@@ -125,9 +132,7 @@ def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:
     return _req_with_retry("DELETE", path, params=params, headers=supabase_headers(json_pref=False))
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Fetch hotels (NO relationship dependencies; merge by hotel_id)
-# Uses user_hotels + hotels + hotel_profiles directly.
-# hotel_profiles has updated_at, not inserted_at.
+# Fetch hotels (no relationship dependencies; merge by hotel_id)
 # ──────────────────────────────────────────────────────────────────────────────
 def _get_user_links(user_id: str) -> List[dict]:
     # 1) user_hotels
@@ -140,11 +145,14 @@ def _get_user_links(user_id: str) -> List[dict]:
         return []
 
     hotel_ids = [x.get("hotel_id") for x in links if x.get("hotel_id")]
+    if not hotel_ids:
+        return []
+
     # 2) hotels
     rh = http_get("/rest/v1/hotels", {"select": "id,name,url", "id": f"in.({','.join(hotel_ids)})"})
     hotels = {h["id"]: h for h in (rh.json() or [])}
 
-    # 3) hotel_profiles (best-effort, may be 0 rows)
+    # 3) hotel_profiles (best-effort)
     profs: Dict[str, dict] = {}
     try:
         rp = http_get(
@@ -188,12 +196,7 @@ def get_own_hotel(user_id: str):
             if slug:
                 cc = (l.get("booking_cc") or "").lower() or None
                 return {"hotel_id": l["hotel_id"], "name": l["name"] or "My Hotel", "slug": slug, "cc": cc}
-    first = links[0]
-    slug = _normalize_slug(first.get("booking_slug") or first.get("url") or "")
-    if not slug:
-        return None
-    cc = (first.get("booking_cc") or "").lower() or None
-    return {"hotel_id": first["hotel_id"], "name": first["name"] or "My Hotel", "slug": slug, "cc": cc}
+    return None
 
 def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:
     links = _get_user_links(user_id)
@@ -236,11 +239,7 @@ def claim_job(job_id: str) -> Optional[dict]:
         return None
 
 def set_job_fields(job_id: str, **patch):
-    try:
-        http_patch(f"/rest/v1/{JOBS_TABLE}", {"id": f"eq.{job_id}"}, patch, prefer_return=False)
-    except HTTPError as e:
-        print("❌ set_job_fields error:", e, "| payload:", patch, "| resp:", getattr(e.response, "text", "")[:400])
-        raise
+    http_patch(f"/rest/v1/{JOBS_TABLE}", {"id": f"eq.{job_id}"}, patch, prefer_return=False)
 
 def set_heartbeat(job_id: str):
     try:
@@ -256,8 +255,7 @@ def is_canceled(job_id: str) -> bool:
             return True
         status = (rows[0].get("status") or "").lower()
         return status in ("canceled", "failed")
-    except HTTPError as e:
-        print("⚠️ is_canceled check failed:", e, getattr(e.response, "text", "")[:200])
+    except Exception:
         return True
 
 def reap_stale_jobs():
@@ -268,8 +266,8 @@ def reap_stale_jobs():
             {"status": "eq.running", "or": f"(heartbeat_at.is.null,heartbeat_at.lt.{cutoff})"},
             {"status": "failed", "finished_at": now_iso_z(), "last_error": "stale (reaped)"},
         )
-    except HTTPError as e:
-        print("⚠️ stale reaper error:", e, getattr(e.response, "text", "")[:400])
+    except Exception as e:
+        print("⚠️ stale reaper error:", e)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # archiving + sold-out helpers
@@ -278,15 +276,15 @@ def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
     try:
         r = http_post(f"/rest/v1/rpc/{HISTORY_FUNC}", {}, {"p_user_id": user_id, "p_slug": slug, "p_checkin": checkin}, timeout_sec=20)
         print(f"📦 Archived {int(r.json() or 0)} old rows for {slug} {checkin} before upsert")
-    except HTTPError as e:
-        print("⚠️ archive_previous_snapshot failed:", e, getattr(e.response, "text", "")[:400])
+    except Exception as e:
+        print("⚠️ archive_previous_snapshot failed:", e)
 
 def delete_current_snapshot(user_id: str, slug: str, checkin: str):
     try:
         r = http_post("/rest/v1/rpc/fn_delete_day_rows", {}, {"p_user_id": user_id, "p_slug": slug, "p_checkin": checkin}, timeout_sec=20)
         print(f"🧹 Deleted {int(r.json() or 0)} rows for {slug} {checkin} (sold out)")
-    except HTTPError as e:
-        print("⚠️ delete_current_snapshot failed:", e, getattr(e.response, "text", "")[:400])
+    except Exception as e:
+        print("⚠️ delete_current_snapshot failed:", e)
 
 def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
     try:
@@ -300,8 +298,8 @@ def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
         )
         rows = r.json() if r.text else []
         return bool(rows)
-    except HTTPError as e:
-        print("⚠️ ensure_soldout_marker failed:", e, getattr(e.response, "text", "")[:400])
+    except Exception as e:
+        print("⚠️ ensure_soldout_marker failed:", e)
         return False
 
 def insert_soldout_alert(user_id: str, slug: str, checkin: str):
@@ -316,8 +314,8 @@ def insert_soldout_alert(user_id: str, slug: str, checkin: str):
     try:
         http_post(f"/rest/v1/{ALERTS_TABLE}", {}, payload, timeout_sec=20)
         print(f"🔔 ALERT AUTO_SOLD_OUT for {slug} {checkin} (user={user_id})")
-    except HTTPError as e:
-        print("⚠️ insert_soldout_alert failed:", e, getattr(e.response, "text", "")[:400])
+    except Exception as e:
+        print("⚠️ insert_soldout_alert failed:", e)
 
 def clear_soldout_marker(user_id: str, slug: str, checkin: str):
     try:
@@ -350,23 +348,29 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         except Exception:
             out["price"] = None
 
-    # rate_key can be nullable in some schemas; keep it non-null if present
+    # keep rate_key non-null if column exists
     if "rate_key" in RAW_ALLOWED_KEYS and out.get("rate_key") is None:
         out["rate_key"] = ""
 
-    required_keys = ("user_id", "slug", "checkin", "room", "occupancy")
-    for rk in required_keys:
-        if not out.get(rk):
+    # required
+    for rk in ("user_id", "slug", "checkin", "room", "occupancy", "price", "hotel"):
+        if out.get(rk) in (None, "", 0):
             return None
-    if "hotel" in RAW_ALLOWED_KEYS and not out.get("hotel"):
-        return None
-    if out.get("price") is None:
-        return None
     return out
+
+def _try_upsert(batch: List[Dict[str, Any]], on_conflict: str) -> None:
+    http_post(
+        f"/rest/v1/{RAW_TABLE}",
+        {"on_conflict": on_conflict},
+        batch,
+        upsert=True,
+        timeout_sec=30,
+    )
 
 def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
     if not rows:
         return
+
     clean: List[Dict[str, Any]] = []
     for r in rows:
         base = {
@@ -388,31 +392,40 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
         }
         if RAW_INCLUDE_JOB_ID:
             base["job_id"] = job_id
+
         s = _sanitize_raw_row(base)
         if s:
             clean.append(s)
+
     if not clean:
         return
 
-    # dedupe within batch by on_conflict key -> keep cheaper
-    uniq: Dict[tuple, Dict[str, Any]] = {}
+    # dedupe within batch by (user, slug, date, room, occ, rate_key)
+    uniq: Dict[Tuple, Dict[str, Any]] = {}
     for r in clean:
-        rk = r.get("rate_key") if "rate_key" in RAW_ALLOWED_KEYS else ""
-        key = (r["user_id"], r["slug"], r["checkin"], r["room"], r["occupancy"], rk)
+        key = (r["user_id"], r["slug"], r["checkin"], r["room"], r["occupancy"], r.get("rate_key") or "")
         if key not in uniq or r["price"] < uniq[key]["price"]:
             uniq[key] = r
     clean = list(uniq.values())
 
+    # chunk and upsert
     for i in range(0, len(clean), 300):
-        batch = clean[i : i + 300]
-        http_post(
-            f"/rest/v1/{RAW_TABLE}",
-            {"on_conflict": RAW_ON_CONFLICT},
-            batch,
-            upsert=True,
-            timeout_sec=30,
-        )
-        print(f"✅ Upserted {len(batch)} rows into room_prices_raw")
+        batch = clean[i:i+300]
+
+        # prefer variant-aware conflict keys
+        try:
+            _try_upsert(batch, PREFERRED_ON_CONFLICT)
+            print(f"✅ Upserted {len(batch)} rows into room_prices_raw (conflict={PREFERRED_ON_CONFLICT})")
+            continue
+        except HTTPError as e:
+            txt = getattr(e.response, "text", "")[:400]
+            # If DB doesn't have a matching unique constraint, PostgREST returns 400 with 42P10.
+            # If DB unique is missing rate_key, we may see 409/23505 too.
+            print("⚠️ upsert preferred failed:", e, txt)
+
+        # fallback: legacy unique constraint
+        _try_upsert(batch, FALLBACK_ON_CONFLICT)
+        print(f"✅ Upserted {len(batch)} rows into room_prices_raw (conflict={FALLBACK_ON_CONFLICT})")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # scrape step
@@ -423,16 +436,30 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
     stored_slug = (hotel.get("scrape_slug") or hotel.get("slug") or "").strip().lower()
     base_slug, cc_from_slug = split_scrape_slug(stored_slug)
     try:
-        cc = ((hotel.get("cc") or "").strip().lower() or (cc_from_slug or "") or (resolve_cc_for_slug(base_slug) if RESOLVE_CC_IF_MISSING else None) or DEFAULT_CC)
+        cc = (
+            (hotel.get("cc") or "").strip().lower()
+            or (cc_from_slug or "")
+            or (resolve_cc_for_slug(base_slug) if RESOLVE_CC_IF_MISSING else None)
+            or DEFAULT_CC
+        )
         stored_slug = to_scrape_slug(base_slug, cc)
 
-        raw_rows = scrape_hotel_for_dates(hotel["name"], base_slug, cc, checkin, checkout, should_cancel=lambda: is_canceled(job_id))
+        raw_rows = scrape_hotel_for_dates(
+            hotel["name"],
+            base_slug,
+            cc,
+            checkin,
+            checkout,
+            should_cancel=lambda: is_canceled(job_id),
+        )
         deduped = dedupe_min_per_room_and_occupancy(raw_rows)
+
         for r in deduped:
             if not r.get("hotel"):
                 r["hotel"] = hotel["name"]
             r["user_id"] = user_id
             r["slug"] = stored_slug
+
         return {"slug": stored_slug, "checkin": checkin, "rows": deduped}
     except Exception as e:
         print("⚠️ scrape task error:", e)
@@ -551,6 +578,7 @@ def process_job(first_row: dict):
 
                 for fut in done:
                     last_progress = time.time()
+
                     try:
                         result = fut.result()
                     except Exception as e:
@@ -616,12 +644,6 @@ def process_job(first_row: dict):
         else:
             set_job_fields(job_id, status="done", finished_at=now_iso_z())
 
-    except HTTPError as http_err:
-        print("💥 HTTP error in process_job:", http_err, getattr(http_err.response, "text", "")[:400])
-        try:
-            set_job_fields(job_id, status="failed", finished_at=now_iso_z(), last_error=str(http_err))
-        except Exception:
-            pass
     except Exception as fatal:
         print("💥 fatal in process_job:", fatal)
         try:
