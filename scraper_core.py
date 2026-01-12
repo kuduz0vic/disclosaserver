@@ -203,7 +203,12 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
     # ── Meals ─────────────────────────────────────────────────────────────
     if re.search(r"breakfast.{0,30}included", t) or re.search(r"\bwith breakfast\b", t) or "includes breakfast" in t:
         flags["breakfast_included"] = True
-    elif "breakfast" in t and re.search(r"not included|extra charge|for an extra fee|surcharge|per person|pp\b|optional", t):
+    # Common case: "Good breakfast € 18" / "Breakfast for an extra fee" / "optional breakfast"
+    # NOTE: do not use word-boundaries around currency symbols.
+    elif "breakfast" in t and re.search(
+        r"not included|extra charge|for an extra fee|surcharge|per person|pp\b|optional|€|\beur\b|\bgood breakfast\b",
+        t,
+    ):
         flags["breakfast_included"] = False
 
     dinner_kw = r"(dinner|evening meal|supper|abendessen|večerj|cena\b)"
