@@ -180,10 +180,14 @@ def clean_price(text: str) -> Optional[float]:
 # Variant attribute parsing (EN-first, but tolerant)
 # ──────────────────────────────────────────────────────────────────────────────
 def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
-    # Booking is mostly English for us (we force Accept-Language), but some
-    # properties (notably AT/DE/IT) can still leak localized phrases.
-    # To keep DayPopup filters reliable, match common phrases across a few
-    # languages.
+    '''
+    Best-effort variant parsing from a small text blob near the price/offer.
+
+    Important:
+    - We often force Booking to render English via lang=en-gb, but some properties
+      still leak local strings. We therefore include a few common non-English tokens
+      for "dinner" and "half board".
+    '''
     t = " ".join((text or "").split()).lower()
 
     flags: Dict[str, Optional[bool]] = {
@@ -196,49 +200,43 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
         "rate_plan": None,
     }
 
-    # Meals
-    # English + common EU languages (sl/de/it/hr)
-    BFAST_POS = r"breakfast.{0,25}included|\bwith breakfast\b|includes breakfast|\bbreakfast included\b|\bfr\u00fchst\u00fcck\b|\bcolazione\b|\bzajtrk\b|\bdoru\u010dak\b"
-    BFAST_NEG = r"breakfast\b.*(not included|extra charge|for an extra fee|surcharge|per person|pp\b)|\bfr\u00fchst\u00fcck\b.*(nicht inbegriffen|gegen aufpreis)|\bcolazione\b.*(non inclusa|a pagamento)|\bzajtrk\b.*(ni vklju\u010den|dopla\u010dilo)"
-
-    if re.search(BFAST_POS, t):
+    # ── Meals ─────────────────────────────────────────────────────────────
+    if re.search(r"breakfast.{0,30}included", t) or re.search(r"\bwith breakfast\b", t) or "includes breakfast" in t:
         flags["breakfast_included"] = True
-    elif re.search(BFAST_NEG, t):
+    elif "breakfast" in t and re.search(r"not included|extra charge|for an extra fee|surcharge|per person|pp\b|optional", t):
         flags["breakfast_included"] = False
 
-    # Dinner / Half board / All inclusive
-    HB_POS = r"\bhalf[-\s]?board\b|\bhb\b|\bhalbpension\b|\bmezza pensione\b|\bpolpenzion\b|\bpolpenzija\b|\bpolupansion\b"
-    DIN_POS = r"dinner.{0,25}included|\bevening meal\b|buffet dinner|\bend\s*essen\b|\babendessen\b|\bcena\b|\bve\u010derja\b"
-    AI_POS = r"\ball[-\s]?inclusive\b|\ball inclusive\b"
-    breakfast_and_dinner = bool(
-        re.search(r"breakfast.{0,80}dinner|dinner.{0,80}breakfast", t)
-        and ("included" in t or "inbegriffen" in t or "inclus" in t)
-    )
-    half_board = bool(re.search(HB_POS, t))
-    dinner = bool(re.search(DIN_POS, t))
-    all_inclusive = bool(re.search(AI_POS, t))
+    dinner_kw = r"(dinner|evening meal|supper|abendessen|večerj|cena\b)"
+    hb_kw = r"(half[-\s]?board|\bhb\b|halvpension|halbpension|polpenzion|polpansion)"
 
-    if half_board:
+    has_hb = bool(re.search(hb_kw, t))
+    has_ai = bool(re.search(r"\ball[-\s]?inclusive\b", t))
+    has_dinner_included = bool(re.search(dinner_kw + r".{0,30}included", t)) or bool(re.search(r"includes.{0,30}" + dinner_kw, t))
+    has_breakfast_and_dinner = bool(
+        re.search(r"breakfast.{0,60}" + dinner_kw + r".{0,30}included", t)
+        or re.search(dinner_kw + r".{0,60}breakfast.{0,30}included", t)
+        or "breakfast & dinner" in t
+        or "breakfast and dinner" in t
+    )
+
+    if has_hb:
         flags["half_board"] = True
         flags["dinner_included"] = True
         if flags["breakfast_included"] is None:
             flags["breakfast_included"] = True
-    elif breakfast_and_dinner or dinner or all_inclusive:
+    elif has_ai:
         flags["dinner_included"] = True
-        if breakfast_and_dinner and flags["breakfast_included"] is None:
+        if flags["breakfast_included"] is None:
+            flags["breakfast_included"] = True
+    elif has_breakfast_and_dinner or has_dinner_included:
+        flags["dinner_included"] = True
+        if has_breakfast_and_dinner and flags["breakfast_included"] is None:
             flags["breakfast_included"] = True
             flags["half_board"] = True
 
-    # Cancellation
-    nonref = bool(
-        re.search(r"\bnon[-\s]?refundable\b|\bno refund\b|\btotal cost to cancel\b|\bnrf\b", t)
-        or re.search(r"\bnicht erstattungsf\u00e4hig\b|\bnon rimborsabile\b|\bnepovratn\w*\b", t)
-    )
-    free_canc = bool(
-        re.search(r"\bfree cancellation\b|\bfully refundable\b|\bfree to cancel\b|\bcancel for free\b", t)
-        or re.search(r"\bkostenlos stornieren\b|\bgratuit\w* annull\w*\b|\bfree to cancel\b", t)
-        or re.search(r"\bbrezpla\u010dna odpoved\b|\bbesplatn\w* otkaz\b", t)
-    ) and not nonref
+    # ── Cancellation ──────────────────────────────────────────────────────
+    nonref = bool(re.search(r"\bnon[-\s]?refundable\b|\bno refund\b|\btotal cost to cancel\b|\bnrf\b", t))
+    free_canc = bool(re.search(r"\bfree cancellation\b|\bfully refundable\b|\bfree to cancel\b|\bcancel for free\b", t)) and not nonref
 
     if nonref:
         flags["nonrefundable"] = True
@@ -249,16 +247,14 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
         if flags["nonrefundable"] is None:
             flags["nonrefundable"] = False
 
-    # Prepay
-    if re.search(r"\bprepay\b|\bprepaid\b|\bpay in advance\b|\bpay now\b|\bcharged in advance\b|payment before arrival", t) or re.search(
-        r"\bvorauszahlung\b|\bpagamento anticipato\b|\bpla\u010dilo vnaprej\b|\bavans\w*\b",
-        t,
-    ):
+    # ── Prepay ────────────────────────────────────────────────────────────
+    if re.search(r"\bprepay\b|\bprepaid\b|\bpay in advance\b|\bpay now\b|\bcharged in advance\b|payment before arrival", t):
         flags["prepay_required"] = True
-    elif re.search(r"no prepayment needed|pay at the property", t) or re.search(r"keine vorauszahlung|nessun pagamento anticipato|brez predpla\u010dila", t):
-        flags["prepay_required"] = False
+    if "no prepayment needed" in t or "no prepayment" in t or "pay at the property" in t:
+        if flags["prepay_required"] is None:
+            flags["prepay_required"] = False
 
-    # Rate plan label (for UI)
+    # ── Rate plan label ───────────────────────────────────────────────────
     parts = []
     if flags["nonrefundable"] is True:
         parts.append("NRF")
@@ -539,14 +535,14 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                 vtxt = ""
 
             max_p = _extract_variant_max_persons(current_room_row, vtxt)
-            if max_p is not None and max_p < adults:
+            if max_p is None or max_p != adults:
                 continue
 
             # If Booking is offering "2 rooms" combos, text often includes "2 rooms".
             # This isn't perfect, but helps avoid the worst mislabels.
             if adults >= 3 and re.search(r"\b2\s+rooms?\b|\b2x\b|\btwo rooms\b", vtxt.lower()):
                 # Only accept if max_p proves this offer is for a single room with that capacity
-                if max_p is None or max_p < adults:
+                if max_p is None or max_p != adults:
                     continue
 
             found_price = False
@@ -672,13 +668,11 @@ def collect_card_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
             continue
 
         mp = _extract_max_persons_from_text(txt)
-        if mp is not None and mp < adults:
+        # STRICT capacity: only accept rooms where the room itself has capacity == adults.
+        # This prevents Booking's "2 rooms" combinations from showing up as 3/4-person rooms.
+        if mp is None or mp != adults:
             continue
 
-        # avoid 2-room combos for adults>2 unless max persons supports it
-        if adults >= 3 and re.search(r"\b2\s+rooms?\b|\btwo rooms\b|\b2x\b", txt.lower()):
-            if mp is None or mp < adults:
-                continue
 
         price = _extract_price_from_card(c)
         if price is None:
