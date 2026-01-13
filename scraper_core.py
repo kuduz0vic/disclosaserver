@@ -449,13 +449,25 @@ def parse_rate_attributes_from_row(row, room_name_row=None) -> Dict[str, Optiona
 
     blob = " ".join(text_chunks).strip()
 
-    # Always add a bit of the full variant-row text as a fallback
+    # Always add the full variant-row text as a fallback.
+    # IMPORTANT: Booking sometimes renders meal-plan text (e.g. "Breakfast & dinner included")
+    # in parts of the row that are missed by narrow selectors. In some cases `inner_text()`
+    # can also omit text that is visually present (e.g. SVG/ARIA-driven labels). So we add:
+    #  - inner_text() (what the user sees)
+    #  - textContent   (a broader net; may include hidden bits)
     try:
         vtxt = (row.inner_text() or "").strip()
     except Exception:
         vtxt = ""
     if vtxt:
         blob = (blob + " " + vtxt).strip() if blob else vtxt
+
+    try:
+        vtc = (row.evaluate("(el) => el.textContent") or "").strip()
+    except Exception:
+        vtc = ""
+    if vtc and vtc != vtxt:
+        blob = (blob + " " + vtc).strip() if blob else vtc
 
     # Merge room header row (often contains "Breakfast included" / max persons)
     if room_name_row is not None:
