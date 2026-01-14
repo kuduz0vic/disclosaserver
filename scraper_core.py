@@ -359,9 +359,9 @@ _ONLY_FOR_RE = re.compile(
     re.IGNORECASE,
 )
 # "Sleeps: 1 - 2 guests" / "Sleeps 1 - 2"
-_SLEEPS_RE = re.compile(r"sleeps:\s*(\d+)\s*(?:-\s*(\d+))?\s*(?:guests?|persons?)?", re.IGNORECASE)
+_SLEEPS_RE = re.compile(r"\bsleeps\s*:?\s*(\d+)\s*(?:[-–—]|to)\s*(\d+)\s*(?:guests?|people|persons?)\b|\bsleeps\s*:?\s*(\d+)\s*(?:guests?|people|persons?)\b", re.IGNORECASE)
 # Also catches "Sleeps 1 - 2 guests" without colon
-_SLEEPS_RE2 = re.compile(r"\bsleeps\s+(\d+)\s*(?:-\s*(\d+))?\s*(?:guests?|persons?)?", re.IGNORECASE)
+_SLEEPS_RE2 = re.compile(r"\bspi\s*:?\s*(\d+)\s*(?:[-–—]|do)\s*(\d+)\s*(?:gost|oseb)\b|\bspi\s*:?\s*(\d+)\s*(?:gost|oseb)\b", re.IGNORECASE)
 
 def _extract_max_persons_from_text(text: str) -> Optional[int]:
     if not text:
@@ -388,6 +388,31 @@ def _extract_only_for_guest(text: str) -> Optional[int]:
 def _extract_sleeps_capacity(text: str) -> Optional[int]:
     if not text:
         return None
+    t = " ".join(text.split())
+
+    m = _SLEEPS_RE.search(t)
+    if m:
+        a, b, c = m.group(1), m.group(2), m.group(3)
+        try:
+            if a and b:
+                return max(int(a), int(b))
+            if c:
+                return int(c)
+        except Exception:
+            pass
+
+    m2 = _SLEEPS_RE2.search(t)
+    if m2:
+        a, b, c = m2.group(1), m2.group(2), m2.group(3)
+        try:
+            if a and b:
+                return max(int(a), int(b))
+            if c:
+                return int(c)
+        except Exception:
+            pass
+
+    return None
     m = _SLEEPS_RE.search(text) or _SLEEPS_RE2.search(text)
     if not m:
         return None
