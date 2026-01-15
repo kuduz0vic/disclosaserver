@@ -213,16 +213,14 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
     }
 
     # ── Meals ─────────────────────────────────────────────────────────────
-    # Breakfast included
-    if re.search(r"\bbreakfast\b.{0,40}\bincluded\b", t) or re.search(r"\bwith breakfast\b", t) or "includes breakfast" in t:
-        flags["breakfast_included"] = True
-    # Breakfast available but not included (common: 'Good breakfast € 18')
-    elif "breakfast" in t and re.search(r"\bgood breakfast\b|not included|extra charge|for an extra fee|surcharge|optional|\beur\b|€|per person|pp\b", t):
-        flags["breakfast_included"] = False
+    # IMPORTANT:
+    # Booking can render multiple offers (breakfast optional + breakfast included + half-board)
+    # under the same room. If our "offer blob" accidentally captures text from a sibling offer,
+    # we can see BOTH "breakfast included" and "Good breakfast € 18". In that scenario the
+    # fee line is the most *offer-specific* signal.
 
-    # Half-board / breakfast+dinner included
     hb_kw = r"(half[-\s]?board|\bhb\b|halvpension|halbpension|polpenzion|polpansion)"
-    dinner_kw = r"(dinner|evening meal|supper|abendessen|vecerj|večerj)"
+    dinner_kw = r"(dinner|evening meal|supper|abendessen|vecerj|večerj|večerja)"
 
     has_hb = bool(re.search(hb_kw, t))
     has_breakfast_and_dinner = bool(
@@ -236,17 +234,42 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
     has_dinner_included = bool(re.search(dinner_kw + r".{0,40}included", t)) or bool(re.search(r"includes.{0,40}" + dinner_kw, t))
     has_ai = bool(re.search(r"\ball[-\s]?inclusive\b", t))
 
+    # Breakfast signals
+    has_breakfast_included = bool(
+        re.search(r"\bbreakfast\b.{0,40}\bincluded\b", t)
+        or re.search(r"\bwith breakfast\b", t)
+        or "includes breakfast" in t
+    )
+    # Fee / optional signals (very common: 'Good breakfast € 18')
+    has_breakfast_fee = bool(
+        re.search(r"\bgood breakfast\b\s*(?:€|eur)\s*[0-9]", t)
+        or re.search(r"\bbreakfast\b\s*(?:€|eur)\s*[0-9]", t)
+        or re.search(r"\bbreakfast\b.{0,20}(?:extra charge|for an extra fee|surcharge|optional|not included)", t)
+    )
+
+    # Half-board implies both meals included (treat 'Breakfast & dinner included' as HB)
     if has_hb or has_breakfast_and_dinner:
         flags["half_board"] = True
         flags["dinner_included"] = True
-        if flags["breakfast_included"] is None:
-            flags["breakfast_included"] = True
+        flags["breakfast_included"] = True
     elif has_ai:
         flags["dinner_included"] = True
         if flags["breakfast_included"] is None:
             flags["breakfast_included"] = True
-    elif has_dinner_included:
-        flags["dinner_included"] = True
+    else:
+        # Not half-board: classify breakfast.
+        # IMPORTANT: Booking sometimes renders multiple offer blocks close together.
+        # If our blob accidentally contains both "breakfast included" (from another offer)
+        # and "Good breakfast € 18" (a paid add-on), we must NOT default to included.
+        # The paid-add-on signal is more specific for the current offer.
+        if has_breakfast_fee and not has_breakfast_and_dinner:
+            flags["breakfast_included"] = False
+        elif has_breakfast_included:
+            flags["breakfast_included"] = True
+
+        # Dinner only (rare) if explicitly stated
+        if has_dinner_included:
+            flags["dinner_included"] = True
 
     # ── Cancellation ──────────────────────────────────────────────────────
     nonref = bool(re.search(r"\bnon[-\s]?refundable\b|\bno refund\b|\btotal cost to cancel\b|\bnrf\b", t))
