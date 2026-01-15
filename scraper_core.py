@@ -362,6 +362,9 @@ _ONLY_FOR_RE = re.compile(
     r"(?:only\s+for|samo\s+za|nur\s+f(?:u|ü)r|solo\s+per|seulement\s+pour)\s+(\d+)\s*(?:guest|guests|gosta|gostov|osebo|osebe|person|personen|persona|personnes)?",
     re.IGNORECASE,
 )
+
+# Backwards-compat alias (older versions referenced _ONLY_FOR_GUEST_RE)
+_ONLY_FOR_GUEST_RE = _ONLY_FOR_RE
 # "Sleeps: 1 - 2 guests" / "Sleeps 1 - 2"
 _SLEEPS_RE = re.compile(r"\bsleeps\s*:?\s*(\d+)\s*(?:[-–—]|to)\s*(\d+)\s*(?:guests?|people|persons?)\b|\bsleeps\s*:?\s*(\d+)\s*(?:guests?|people|persons?)\b", re.IGNORECASE)
 # Also catches "Sleeps 1 - 2 guests" without colon
