@@ -403,6 +403,35 @@ def _extract_only_for_guest(text: str) -> Optional[int]:
         return None
     return max(nums)
 
+
+def _extract_sleeps_capacity(text: str) -> Optional[int]:
+    """Extract the implied capacity from Booking's "Sleeps" line.
+
+    We treat range forms ("Sleeps: 1 - 2 guests") as capacity=2 (upper bound),
+    because a 1..2 room is still a *double* and should NOT be counted as a true
+    single room when adults=1 unless Booking explicitly says "Only for 1 guest".
+    """
+    if not text:
+        return None
+    t = " ".join(text.split())
+
+    m = _SLEEPS_RE.search(t)
+    if m:
+        try:
+            a = int(m.group(1))
+            b = int(m.group(2)) if m.group(2) else None
+            return b if b is not None else a
+        except Exception:
+            pass
+
+    m2 = _SLEEPS_RE2.search(t)
+    if m2:
+        try:
+            return int(m2.group(1))
+        except Exception:
+            pass
+    return None
+
 def _count_person_icons_in_node(node) -> Optional[int]:
     """
     Count visible person icons inside the node (best-effort).
