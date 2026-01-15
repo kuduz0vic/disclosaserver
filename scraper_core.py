@@ -2,24 +2,22 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Booking.com scraper core (sync Playwright) — Variant-aware + strict occupancy
 #
-# v8 fixes:
-# 1) Capacity detection is PER-OFFER (variant row first), not inherited from header row.
-#    This fixes cases like "Triposteljna ..." where Booking shows both 3-guest and 1-guest
-#    pricing under the same room header; previously we used header icons and misfiled 1-guest
-#    prices under 3-guest.
-# 2) "Only for X guest" detection expanded to multiple languages and the "Sleeps: A - B guests"
-#    pattern used in Booking's room picker.
-# 3) Optional debug logging:
-#      DEBUG_MEAL_BLOB=1   -> prints the offer blob (same as before)
-#      DEBUG_CAPACITY=1    -> prints capacity decisions for offers (limited)
+# Fixes in this version:
+#  1) Meal flags (breakfast / dinner / half_board) are parsed from a *per-offer*
+#     blob gathered around each price element (not only from row.inner_text()).
+#     This reliably captures "Breakfast & dinner included" offers on Occidental.
+#  2) STRICT OCCUPANCY is enforced per offer using (in order):
+#        - "Only for X guest" (offer text)
+#        - occupancy icons in the offer row (occupancy cell)
+#        - "Sleeps: A - B guests" / "Sleeps: B guests"
+#        - "Max persons: X"
+#     We require capacity == adults (exact) to avoid 2-room combos and to keep
+#     1-person results strictly from true single-guest offers (no double rooms).
+#  3) "Breakfast & dinner included" is treated as half_board=True (and dinner=True).
 #
-# Requirements:
-# - lang=en-gb in URL, but Booking may still render local strings. We include a few.
-# - STRICT occupancy rule:
-#     keep an offer only if detected capacity == adults (exact match)
-#     (prevents 2-room combos being treated as 4-person rooms)
-# - For adults=1, we *still* require capacity == 1 (so doubles won't show under "1-person")
-#   (this matches your desired demo semantics: 1-person means a real single offer)
+# Optional debug:
+#   - set MEAL_DEBUG=1 to print offer blobs that contain meal keywords
+#   - set OFFER_DEBUG=1 to print capacity + flags decisions per offer
 # ──────────────────────────────────────────────────────────────────────────────
 
 import os
@@ -54,6 +52,9 @@ WAIT_TABLE_TIMEOUT_MS = int(os.getenv("WAIT_TABLE_TIMEOUT_MS", "12000"))
 SCROLL_PASSES = int(os.getenv("SCROLL_PASSES", "12"))
 HEADLESS = os.getenv("HEADLESS", "1") == "1"
 
+MEAL_DEBUG = os.getenv("MEAL_DEBUG", "0") == "1"
+OFFER_DEBUG = os.getenv("OFFER_DEBUG", "0") == "1"
+
 USER_AGENT = (
     os.getenv("USER_AGENT")
     or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -61,12 +62,8 @@ USER_AGENT = (
        "Chrome/124.0.0.0 Safari/537.36"
 )
 
-DEBUG_MEAL_BLOB = os.getenv("DEBUG_MEAL_BLOB", "0") == "1"
-DEBUG_CAPACITY = os.getenv("DEBUG_CAPACITY", "0") == "1"
-DEBUG_CAPACITY_LIMIT = int(os.getenv("DEBUG_CAPACITY_LIMIT", "30"))
-
 # ──────────────────────────────────────────────────────────────────────────────
-# Supabase headers
+# Supabase headers (kept for worker compatibility)
 # ──────────────────────────────────────────────────────────────────────────────
 def supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:
     h = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
@@ -187,9 +184,14 @@ def clean_price(text: str) -> Optional[float]:
     return _parse_price_number(m.group(2))
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Variant attribute parsing (EN-first, but tolerant)
+# Variant attribute parsing (EN-first, tolerant)
 # ──────────────────────────────────────────────────────────────────────────────
 def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
+    """
+    Returns flags (True/False/None). Note:
+    - We treat "Breakfast & dinner included" as half_board=True.
+    - We do NOT attempt to distinguish "dinner only" vs half-board reliably.
+    """
     t = " ".join((text or "").split()).lower()
 
     flags: Dict[str, Optional[bool]] = {
@@ -202,47 +204,30 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
         "rate_plan": None,
     }
 
-    # Breakfast
-    if re.search(r"breakfast.{0,30}included", t) or re.search(r"\bwith breakfast\b", t) or "includes breakfast" in t:
+    # Breakfast included vs paid
+    if re.search(r"\bbreakfast\b.{0,30}\bincluded\b", t) or re.search(r"\bwith breakfast\b", t) or "includes breakfast" in t:
         flags["breakfast_included"] = True
     elif "breakfast" in t and re.search(
-        r"not included|extra charge|for an extra fee|surcharge|per person|pp\b|optional|€|\beur\b|\bgood breakfast\b",
+        r"not included|extra charge|for an extra fee|surcharge|per person|pp\b|optional|\beur\b|€|\bgood breakfast\b",
         t,
     ):
         flags["breakfast_included"] = False
 
-    dinner_kw = r"(dinner|evening meal|supper|abendessen|večerj|cena\b)"
-    hb_kw = r"(half[-\s]?board|\bhb\b|halvpension|halbpension|polpenzion|polpansion)"
-
-    has_hb = bool(re.search(hb_kw, t))
+    # Dinner / half-board
+    # IMPORTANT: treat "breakfast & dinner included" as half-board.
+    has_bd = ("breakfast & dinner included" in t) or ("breakfast and dinner included" in t) or bool(re.search(r"\bbreakfast\b.{0,80}\bdinner\b.{0,40}\bincluded\b", t))
+    has_hb_word = bool(re.search(r"\bhalf[-\s]?board\b|\bhb\b|halvpension|halbpension|polpenzion|polpansion", t))
     has_ai = bool(re.search(r"\ball[-\s]?inclusive\b", t))
-    has_dinner_included = bool(re.search(dinner_kw + r".{0,30}included", t)) or bool(re.search(r"includes.{0,30}" + dinner_kw, t))
-    has_breakfast_and_dinner = bool(
-        re.search(r"breakfast.{0,60}" + dinner_kw + r".{0,30}included", t)
-        or re.search(dinner_kw + r".{0,60}breakfast.{0,30}included", t)
-        or "breakfast & dinner included" in t
-        or "breakfast and dinner included" in t
-        or "breakfast & dinner" in t
-        or "breakfast and dinner" in t
-    )
+    has_dinner_included = bool(re.search(r"\bdinner\b.{0,40}\bincluded\b", t)) or bool(re.search(r"\bincludes\b.{0,40}\bdinner\b", t))
 
-    if has_hb:
+    if has_hb_word or has_bd:
         flags["half_board"] = True
         flags["dinner_included"] = True
+        # breakfast is part of HB in practice; if not explicitly false, set true
         if flags["breakfast_included"] is None:
             flags["breakfast_included"] = True
-    elif has_ai:
+    elif has_ai or has_dinner_included:
         flags["dinner_included"] = True
-        if flags["breakfast_included"] is None:
-            flags["breakfast_included"] = True
-    elif has_breakfast_and_dinner or has_dinner_included:
-        flags["dinner_included"] = True
-        # In practice "Breakfast & dinner included" is your Half-board filter.
-        # Mark half_board = True so you can filter by it deterministically.
-        if has_breakfast_and_dinner:
-            flags["half_board"] = True
-        if flags["breakfast_included"] is None and has_breakfast_and_dinner:
-            flags["breakfast_included"] = True
 
     # Cancellation
     nonref = bool(re.search(r"\bnon[-\s]?refundable\b|\bno refund\b|\btotal cost to cancel\b|\bnrf\b", t))
@@ -257,7 +242,7 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
             flags["nonrefundable"] = False
 
     # Prepay
-    if re.search(r"\bprepay\b|\bprepaid\b|\bpay in advance\b|\bpay now\b|\bcharged in advance\b|payment before arrival", t):
+    if re.search(r"\bprepay\b|\bprepaid\b|\bpay in advance\b|\bpay now\b|\bcharged in advance\b|payment before arrival|pay the property before arrival", t):
         flags["prepay_required"] = True
     if "no prepayment needed" in t or "no prepayment" in t or "pay at the property" in t:
         if flags["prepay_required"] is None:
@@ -302,7 +287,12 @@ EXPAND_SELECTORS = [
     "button:has-text('See all rooms')","a:has-text('Show all')",
     "a:has-text('Show more')","a:has-text('See all rooms')",
 ]
-ROOM_TABLE_SELECTORS = ["#hprt-table", "table.hprt-table", "[data-testid='hprt-table']", "[data-testid='availability-table']"]
+ROOM_TABLE_SELECTORS = [
+    "#hprt-table",
+    "table.hprt-table",
+    "[data-testid='hprt-table']",
+    "[data-testid='availability-table']",
+]
 
 PRICE_SELECTORS = [
     "[data-testid='price-and-discounted-price']",
@@ -350,18 +340,13 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
         last_h = h
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Strict occupancy helpers (per-offer)
+# Strict occupancy helpers
 # ──────────────────────────────────────────────────────────────────────────────
 _MAX_PERSONS_RE = re.compile(r"max persons:\s*(\d+)", re.IGNORECASE)
-# "Only for X guest" (EN) + common variants (SL/DE/IT/FR) + tolerant endings
-_ONLY_FOR_RE = re.compile(
-    r"(?:only\s+for|samo\s+za|nur\s+f(?:u|ü)r|solo\s+per|seulement\s+pour)\s+(\d+)\s*(?:guest|guests|gosta|gostov|osebo|osebe|person|personen|persona|personnes)?",
-    re.IGNORECASE,
-)
-# "Sleeps: 1 - 2 guests" / "Sleeps 1 - 2"
-_SLEEPS_RE = re.compile(r"\bsleeps\s*:?\s*(\d+)\s*(?:[-–—]|to)\s*(\d+)\s*(?:guests?|people|persons?)\b|\bsleeps\s*:?\s*(\d+)\s*(?:guests?|people|persons?)\b", re.IGNORECASE)
-# Also catches "Sleeps 1 - 2 guests" without colon
-_SLEEPS_RE2 = re.compile(r"\bspi\s*:?\s*(\d+)\s*(?:[-–—]|do)\s*(\d+)\s*(?:gost|oseb)\b|\bspi\s*:?\s*(\d+)\s*(?:gost|oseb)\b", re.IGNORECASE)
+_ONLY_FOR_GUEST_RE = re.compile(r"only for\s+(\d+)\s+guest", re.IGNORECASE)
+# Booking sometimes uses "Sleeps: 1 - 2 guests" or "Sleeps: 2 guests"
+_SLEEPS_RANGE_RE = re.compile(r"sleeps:\s*(\d+)\s*[-–]\s*(\d+)\s*guests?", re.IGNORECASE)
+_SLEEPS_EXACT_RE = re.compile(r"sleeps:\s*(\d+)\s*guests?", re.IGNORECASE)
 
 def _extract_max_persons_from_text(text: str) -> Optional[int]:
     if not text:
@@ -377,7 +362,7 @@ def _extract_max_persons_from_text(text: str) -> Optional[int]:
 def _extract_only_for_guest(text: str) -> Optional[int]:
     if not text:
         return None
-    m = _ONLY_FOR_RE.search(text)
+    m = _ONLY_FOR_GUEST_RE.search(text)
     if not m:
         return None
     try:
@@ -388,45 +373,24 @@ def _extract_only_for_guest(text: str) -> Optional[int]:
 def _extract_sleeps_capacity(text: str) -> Optional[int]:
     if not text:
         return None
-    t = " ".join(text.split())
-
-    m = _SLEEPS_RE.search(t)
+    m = _SLEEPS_RANGE_RE.search(text)
     if m:
-        a, b, c = m.group(1), m.group(2), m.group(3)
         try:
-            if a and b:
-                return max(int(a), int(b))
-            if c:
-                return int(c)
+            lo = int(m.group(1)); hi = int(m.group(2))
+            # For our strict rules, the *offer* is usually for the max in that row.
+            # (e.g. "Sleeps: 1 - 2 guests" is a 2-capacity offer)
+            return max(lo, hi)
         except Exception:
             pass
-
-    m2 = _SLEEPS_RE2.search(t)
+    m2 = _SLEEPS_EXACT_RE.search(text)
     if m2:
-        a, b, c = m2.group(1), m2.group(2), m2.group(3)
         try:
-            if a and b:
-                return max(int(a), int(b))
-            if c:
-                return int(c)
+            return int(m2.group(1))
         except Exception:
             pass
-
     return None
-    m = _SLEEPS_RE.search(text) or _SLEEPS_RE2.search(text)
-    if not m:
-        return None
-    try:
-        a = int(m.group(1))
-        b = int(m.group(2)) if m.group(2) else a
-        return max(a, b)
-    except Exception:
-        return None
 
 def _count_person_icons_in_node(node) -> Optional[int]:
-    """
-    Count visible person icons inside the node (best-effort).
-    """
     try:
         return node.evaluate(
             """(el) => {
@@ -434,9 +398,7 @@ def _count_person_icons_in_node(node) -> Optional[int]:
                 "i.bicon-occupancy", "i.bicon-person", "span.bicon-occupancy",
                 "svg[aria-label*='person']", "svg[aria-label*='guest']",
                 "[data-testid*='occupancy'] svg", "[data-testid*='occupancy'] i",
-                // Booking sometimes uses role/img
-                "span[role='img'][aria-label*='person']",
-                "span[role='img'][aria-label*='guest']"
+                "[data-testid='occupancy-icon']",
               ];
               let c = 0;
               for (const sel of sels){
@@ -448,6 +410,100 @@ def _count_person_icons_in_node(node) -> Optional[int]:
         )
     except Exception:
         return None
+
+def _variant_row_occupancy_icons(variant_row) -> Optional[int]:
+    """Prefer occupancy icons in the variant row itself (not the room header row)."""
+    try:
+        occ_cell = (
+            variant_row.query_selector("td.hprt-table-cell-occupancy")
+            or variant_row.query_selector("[data-testid*='occupancy']")
+        )
+        if occ_cell:
+            c = _count_person_icons_in_node(occ_cell)
+            if c:
+                return c
+    except Exception:
+        pass
+    return None
+
+def _offer_blob_near_price(price_el) -> str:
+    """
+    Build a tight text blob around ONE offer (price cell and its nearest row/cell),
+    so we capture meal/cancel text without swallowing other offers.
+    """
+    try:
+        return (price_el.evaluate(
+            """(el) => {
+              function clean(s){ return (s||'').replace(/\\s+/g,' ').trim(); }
+              // 1) prefer the nearest table row (offer row)
+              const tr = el.closest('tr');
+              const chunks = [];
+              if (tr){
+                // include the "your choices" cell if present
+                const choices = tr.querySelector('td.hprt-table-cell-conditions') || tr;
+                chunks.push(clean(choices.innerText || choices.textContent || ''));
+                // include occupancy cell and any max persons / only-for labels
+                const occ = tr.querySelector('td.hprt-table-cell-occupancy') || tr;
+                chunks.push(clean(occ.innerText || occ.textContent || ''));
+                // include the price cell text
+                chunks.push(clean(el.innerText || el.textContent || ''));
+                // include any nearby "Sleeps" labels within the row
+                chunks.push(clean(tr.innerText || tr.textContent || ''));
+                return chunks.filter(Boolean).join(' ');
+              }
+              // 2) fallback: climb a few parents
+              let node = el;
+              for (let i=0;i<6 && node;i++){
+                const t = clean(node.innerText || node.textContent || '');
+                if (t) chunks.push(t);
+                node = node.parentElement;
+              }
+              return chunks.filter(Boolean).join(' ');
+            }"""
+        ) or "").strip()
+    except Exception:
+        return ""
+
+def _capacity_for_offer(adults: int, room_name_row, variant_row, offer_blob: str) -> Optional[int]:
+    """
+    Determine the offer capacity (exact) using the most reliable signals.
+    """
+    # Only-for is exact per-offer
+    only_for = _extract_only_for_guest(offer_blob)
+    if only_for is not None:
+        return only_for
+
+    # Occupancy icons in this offer row
+    icons = _variant_row_occupancy_icons(variant_row)
+    if icons:
+        return icons
+
+    # Sleeps (some locales)
+    sleeps = _extract_sleeps_capacity(offer_blob)
+    if sleeps:
+        return sleeps
+
+    # Max persons inside offer blob or header row
+    mp = _extract_max_persons_from_text(offer_blob)
+    if mp is not None:
+        return mp
+
+    if room_name_row is not None:
+        try:
+            hdr = (room_name_row.inner_text() or "")
+        except Exception:
+            hdr = ""
+        mp2 = _extract_max_persons_from_text(hdr)
+        if mp2 is not None:
+            return mp2
+        try:
+            ic = _count_person_icons_in_node(room_name_row)
+            if ic:
+                return ic
+        except Exception:
+            pass
+
+    return None
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Classic table extraction (preferred)
@@ -472,85 +528,14 @@ def _is_room_name_row(row) -> Optional[str]:
     except Exception:
         return None
 
-def _offer_blob_for_variant(room_name_row, variant_row) -> str:
-    """
-    Build a blob that is still LOCAL to this offer:
-    - variant row text (inner_text + textContent)
-    - plus header row text (helps capture meal plan shown on header)
-    """
-    chunks: List[str] = []
-    try:
-        vtxt = (variant_row.inner_text() or "").strip()
-    except Exception:
-        vtxt = ""
-    if vtxt:
-        chunks.append(vtxt)
-
-    try:
-        vtc = (variant_row.evaluate("(el) => el.textContent") or "").strip()
-    except Exception:
-        vtc = ""
-    if vtc and vtc != vtxt:
-        chunks.append(vtc)
-
-    # Include header row text (often has breakfast + room meta)
-    if room_name_row is not None:
-        try:
-            htxt = (room_name_row.inner_text() or "").strip()
-        except Exception:
-            htxt = ""
-        if htxt:
-            chunks.append(htxt)
-
-        try:
-            htc = (room_name_row.evaluate("(el) => el.textContent") or "").strip()
-        except Exception:
-            htc = ""
-        if htc and htc != htxt:
-            chunks.append(htc)
-
-    blob = " ".join([c for c in chunks if c]).strip()
-    blob = re.sub(r"\s+", " ", blob)
-    return blob
-
-def _detect_offer_capacity(room_name_row, variant_row, blob: str) -> Optional[int]:
-    """
-    PER-OFFER capacity:
-    1) "Only for X guest" / language variants in offer blob
-    2) "Sleeps: A - B guests" in offer blob
-    3) icons INSIDE variant row (not header)
-    4) "Max persons: X" in offer blob
-    5) fallback: header icons / header max persons
-    """
-    only_for = _extract_only_for_guest(blob)
-    if only_for is not None:
-        return only_for
-
-    sleeps = _extract_sleeps_capacity(blob)
-    if sleeps is not None:
-        return sleeps
-
-    icons_variant = _count_person_icons_in_node(variant_row)
-    if icons_variant:
-        return icons_variant
-
-    mp = _extract_max_persons_from_text(blob)
-    if mp is not None:
-        return mp
-
-    # fallbacks:
-    icons_header = _count_person_icons_in_node(room_name_row) if room_name_row is not None else None
-    if icons_header:
-        return icons_header
-
-    try:
-        htxt = (room_name_row.inner_text() or "") if room_name_row is not None else ""
-    except Exception:
-        htxt = ""
-    mp2 = _extract_max_persons_from_text(htxt)
-    return mp2
-
 def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
+    """
+    For a given adults=N, collect offers from the classic hprt table.
+
+    IMPORTANT:
+    We attach flags/capacity PER PRICE ELEMENT (offer), because a single room type
+    can have many offers/variants.
+    """
     results: List[Dict[str, Any]] = []
 
     table = None
@@ -571,7 +556,9 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
 
     current_room: Optional[str] = None
     current_room_row = None
-    dbg_left = DEBUG_CAPACITY_LIMIT
+
+    # Dedup within page
+    seen = set()
 
     for tr in trs:
         try:
@@ -584,66 +571,66 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
             if not current_room or not current_room_row:
                 continue
 
-            blob = _offer_blob_for_variant(current_room_row, tr)
-            if DEBUG_MEAL_BLOB and ("breakfast" in blob.lower() or "dinner" in blob.lower() or "half" in blob.lower()):
-                print("🧪 MEAL_BLOB:", blob[:800])
-
-            cap = _detect_offer_capacity(current_room_row, tr, blob)
-            if DEBUG_CAPACITY and dbg_left > 0:
-                dbg_left -= 1
-                print(f"🧪 CAP adults={adults} cap={cap} room='{current_room[:50]}' blob_has='{'B&D' if 'breakfast & dinner' in blob.lower() else ''}{' breakfast' if 'breakfast' in blob.lower() else ''}'")
-
-            # STRICT: require cap == adults (exact)
-            if cap is None or cap != adults:
+            # Find price elements in this offer row
+            price_els = []
+            for psel in PRICE_SELECTORS:
+                try:
+                    price_els.extend(tr.query_selector_all(psel))
+                except Exception:
+                    pass
+            if not price_els:
                 continue
 
-            attrs = parse_rate_attributes(blob)
-            rate_key = build_rate_key(attrs)
+            for pel in price_els:
+                try:
+                    ptxt = (pel.inner_text() or "").strip()
+                except Exception:
+                    ptxt = ""
+                price = clean_price(ptxt)
+                if price is None:
+                    # fallback to offer blob (still currency anchored)
+                    offer_blob = _offer_blob_near_price(pel)
+                    price = clean_price(offer_blob)
+                else:
+                    offer_blob = _offer_blob_near_price(pel)
 
-            vtxt = blob  # already includes variant + header; ok for price fallback
+                if not offer_blob:
+                    continue
 
-            found_price = False
-            for psel in PRICE_SELECTORS:
-                for pel in tr.query_selector_all(psel):
-                    try:
-                        ptxt = (pel.inner_text() or "").strip()
-                    except Exception:
-                        ptxt = ""
-                    price = clean_price(ptxt) or clean_price(vtxt)
-                    if price is None:
-                        continue
+                cap = _capacity_for_offer(adults, current_room_row, tr, offer_blob)
+                if cap is None or cap != adults:
+                    continue
 
-                    results.append({
-                        "room": current_room,
-                        "price": float(price),
-                        "occupancy": adults,
-                        "breakfast_included": attrs.get("breakfast_included"),
-                        "dinner_included": attrs.get("dinner_included"),
-                        "half_board": attrs.get("half_board"),
-                        "free_cancellation": attrs.get("free_cancellation"),
-                        "nonrefundable": attrs.get("nonrefundable"),
-                        "prepay_required": attrs.get("prepay_required"),
-                        "rate_plan": attrs.get("rate_plan"),
-                        "rate_key": rate_key,
-                    })
-                    found_price = True
+                attrs = parse_rate_attributes(offer_blob)
+                rate_key = build_rate_key(attrs)
 
-            if not found_price:
-                price = clean_price(vtxt)
-                if price is not None:
-                    results.append({
-                        "room": current_room,
-                        "price": float(price),
-                        "occupancy": adults,
-                        "breakfast_included": attrs.get("breakfast_included"),
-                        "dinner_included": attrs.get("dinner_included"),
-                        "half_board": attrs.get("half_board"),
-                        "free_cancellation": attrs.get("free_cancellation"),
-                        "nonrefundable": attrs.get("nonrefundable"),
-                        "prepay_required": attrs.get("prepay_required"),
-                        "rate_plan": attrs.get("rate_plan"),
-                        "rate_key": rate_key,
-                    })
+                if MEAL_DEBUG and ("breakfast" in offer_blob.lower() or "dinner" in offer_blob.lower() or "half board" in offer_blob.lower()):
+                    print("🧪 MEAL_BLOB:", offer_blob[:520])
+
+                if OFFER_DEBUG:
+                    print(f"🧩 OFFER adults={adults} cap={cap} price={price} room='{current_room[:40]}' hb={attrs.get('half_board')} din={attrs.get('dinner_included')} b={attrs.get('breakfast_included')} | blob={offer_blob[:180]}")
+
+                if price is None:
+                    continue
+
+                key = (current_room.lower(), adults, float(price), rate_key)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                results.append({
+                    "room": current_room,
+                    "price": float(price),
+                    "occupancy": adults,
+                    "breakfast_included": attrs.get("breakfast_included"),
+                    "dinner_included": attrs.get("dinner_included"),
+                    "half_board": attrs.get("half_board"),
+                    "free_cancellation": attrs.get("free_cancellation"),
+                    "nonrefundable": attrs.get("nonrefundable"),
+                    "prepay_required": attrs.get("prepay_required"),
+                    "rate_plan": attrs.get("rate_plan"),
+                    "rate_key": rate_key,
+                })
         except Exception:
             continue
 
@@ -718,8 +705,12 @@ def collect_card_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
         if not room_name:
             continue
 
-        # strict capacity (exact)
-        cap = _extract_only_for_guest(txt) or _extract_sleeps_capacity(txt) or _extract_max_persons_from_text(txt) or _count_person_icons_in_node(c)
+        # strict occupancy: exact capacity
+        only_for = _extract_only_for_guest(txt)
+        if only_for is not None and only_for != adults:
+            continue
+
+        cap = _extract_sleeps_capacity(txt) or _extract_max_persons_from_text(txt)
         if cap is None or cap != adults:
             continue
 
