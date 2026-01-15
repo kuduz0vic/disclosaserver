@@ -481,11 +481,14 @@ def _is_room_name_row(row) -> Optional[str]:
     except Exception:
         return None
 
-def _offer_blob_for_variant(room_name_row, variant_row) -> str:
-    """
-    Build a blob that is still LOCAL to this offer:
-    - variant row text (inner_text + textContent)
-    - plus header row text (helps capture meal plan shown on header)
+def _variant_blob(variant_row) -> str:
+    """Text blob scoped to a *single offer row*.
+
+    IMPORTANT: do NOT merge the header row here.
+    For some properties (Occidental is the worst offender), the header row can
+    contain meal-plan text from a different variant. If we merge it, we end up
+    marking *all* variants as breakfast-included, which makes "no breakfast"
+    offers disappear from the data.
     """
     chunks: List[str] = []
     try:
@@ -502,7 +505,18 @@ def _offer_blob_for_variant(room_name_row, variant_row) -> str:
     if vtc and vtc != vtxt:
         chunks.append(vtc)
 
-    # Include header row text (often has breakfast + room meta)
+    blob = " ".join([c for c in chunks if c]).strip()
+    return re.sub(r"\s+", " ", blob)
+
+
+def _offer_blob_for_variant(room_name_row, variant_row) -> str:
+    """Offer blob used for CAPACITY detection (may include header row).
+
+    We still keep this local, but capacity signals (icons/max persons) sometimes
+    only live on the header row.
+    """
+    chunks: List[str] = [_variant_blob(variant_row)]
+
     if room_name_row is not None:
         try:
             htxt = (room_name_row.inner_text() or "").strip()
@@ -519,8 +533,7 @@ def _offer_blob_for_variant(room_name_row, variant_row) -> str:
             chunks.append(htc)
 
     blob = " ".join([c for c in chunks if c]).strip()
-    blob = re.sub(r"\s+", " ", blob)
-    return blob
+    return re.sub(r"\s+", " ", blob)
 
 def _detect_offer_capacity(room_name_row, variant_row, blob: str) -> Optional[int]:
     """
@@ -606,7 +619,27 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
             if cap is None or cap != adults:
                 continue
 
-            attrs = parse_rate_attributes(blob)
+            # --- Variant attributes (meals/refund/prepay) ---
+            # IMPORTANT:
+            # Do NOT blindly mix the room-name/header row into the attribute blob.
+            # Booking often renders "Breakfast included" somewhere in the room header
+            # even when only *some* variants include it. If we merge header text,
+            # we accidentally mark optional-breakfast offers as included.
+            variant_blob = _variant_blob(tr)
+
+            # If the variant blob contains no meal keywords at all, allow header
+            # meal text as a fallback (some layouts put meal plan on the header).
+            header_txt = ""
+            try:
+                header_txt = (current_room_row.inner_text() or "").strip()
+            except Exception:
+                header_txt = ""
+
+            if header_txt and not re.search(r"\b(breakfast|dinner|half[-\s]?board|halfboard|breakfast\s*&\s*dinner)\b", variant_blob, re.I):
+                if re.search(r"\b(breakfast|dinner|half[-\s]?board|halfboard|breakfast\s*&\s*dinner)\b", header_txt, re.I):
+                    variant_blob = (variant_blob + " " + header_txt).strip()
+
+            attrs = parse_rate_attributes(variant_blob)
             rate_key = build_rate_key(attrs)
 
             vtxt = blob  # already includes variant + header; ok for price fallback
