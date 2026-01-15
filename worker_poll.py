@@ -22,6 +22,7 @@ from scraper_core import (
     DEFAULT_CC,
     scrape_hotel_for_dates,
     dedupe_min_per_room_and_occupancy,
+    build_rate_key,
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -59,7 +60,10 @@ SOLDOUT_TABLE = "soldout_markers"
 ALERTS_TABLE = "alert_events"
 
 # IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)
-RAW_ON_CONFLICT = os.getenv("RAW_ON_CONFLICT", "user_id,slug,checkin,room,occupancy,rate_key")
+# We *force* this because if someone accidentally sets RAW_ON_CONFLICT without
+# rate_key, PostgREST will error (no matching unique constraint) OR you'll end
+# up overwriting variants and your filters will "randomly" disappear.
+RAW_ON_CONFLICT = "user_id,slug,checkin,room,occupancy,rate_key"
 RAW_INCLUDE_JOB_ID = os.getenv("RAW_INCLUDE_JOB_ID", "0") == "1"
 
 _raw_allowed_default = ",".join([
@@ -71,6 +75,15 @@ _raw_allowed_default = ",".join([
 RAW_ALLOWED_KEYS = {k.strip() for k in os.getenv("RAW_ALLOWED_KEYS", _raw_allowed_default).split(",") if k.strip()}
 if not RAW_INCLUDE_JOB_ID and "job_id" in RAW_ALLOWED_KEYS:
     RAW_ALLOWED_KEYS.remove("job_id")
+
+# Force-include rate_key because variant storage depends on it.
+# If Railway env accidentally omits rate_key, you'll silently write '' (default)
+# and variants will overwrite each other.
+RAW_ALLOWED_KEYS.add("rate_key")
+
+if os.getenv("DEBUG_WORKER_CONFIG", "0") == "1":
+    print("🧩 RAW_ON_CONFLICT:", RAW_ON_CONFLICT)
+    print("🧩 RAW_ALLOWED_KEYS:", ",".join(sorted(RAW_ALLOWED_KEYS)))
 
 # ──────────────────────────────────────────────────────────────────────────────
 # HTTP helpers (short timeouts + retries)
@@ -344,9 +357,28 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         except Exception:
             out["price"] = None
 
-    # rate_key must be non-null for your unique index
-    if "rate_key" in RAW_ALLOWED_KEYS and out.get("rate_key") is None:
-        out["rate_key"] = ""
+    # rate_key must be non-null for your unique index.
+    # Also: if it is missing/empty, variants collapse and your meal filters break.
+    if "rate_key" in RAW_ALLOWED_KEYS:
+        rk = out.get("rate_key")
+        if not isinstance(rk, str):
+            rk = ""
+        rk = rk.strip()
+        if not rk:
+            # Best-effort: derive from flags (even if scraper forgot to set it)
+            flags = {
+                "breakfast_included": out.get("breakfast_included"),
+                "dinner_included": out.get("dinner_included"),
+                "half_board": out.get("half_board"),
+                "free_cancellation": out.get("free_cancellation"),
+                "nonrefundable": out.get("nonrefundable"),
+                "prepay_required": out.get("prepay_required"),
+            }
+            try:
+                rk = build_rate_key(flags)
+            except Exception:
+                rk = ""
+        out["rate_key"] = rk or ""
 
     required_keys = ("user_id", "slug", "checkin", "room", "occupancy")
     for rk in required_keys:
