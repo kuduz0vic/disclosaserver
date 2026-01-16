@@ -65,6 +65,14 @@ DEBUG_MEAL_BLOB = os.getenv("DEBUG_MEAL_BLOB", "0") == "1"
 DEBUG_CAPACITY = os.getenv("DEBUG_CAPACITY", "0") == "1"
 DEBUG_CAPACITY_LIMIT = int(os.getenv("DEBUG_CAPACITY_LIMIT", "30"))
 
+# Debug classification for breakfast/half-board per offer.
+# NOTE: This only prints if you enable it.
+DEBUG_BREAKFAST = os.getenv("DEBUG_BREAKFAST", "0") == "1"
+DEBUG_BREAKFAST_LIMIT = int(os.getenv("DEBUG_BREAKFAST_LIMIT", "40"))
+_DEBUG_BREAKFAST_COUNT = 0
+DEBUG_BREAKFAST_LIMIT = int(os.getenv("DEBUG_BREAKFAST_LIMIT", "40"))
+DEBUG_BREAKFAST_SLUG = (os.getenv("DEBUG_BREAKFAST_SLUG", "") or "").strip().lower()
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Supabase headers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -240,11 +248,14 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
         or re.search(r"\bwith breakfast\b", t)
         or "includes breakfast" in t
     )
-    # Fee / optional signals (very common: 'Good breakfast € 18')
+    # Fee / optional signals (very common: 'Good breakfast € 18' or 'Good breakfast 18 €').
+    # We keep this intentionally broad: if the blob shows a breakfast price, it's NOT included.
     has_breakfast_fee = bool(
         re.search(r"\bgood breakfast\b\s*(?:€|eur)\s*[0-9]", t)
+        or re.search(r"\bgood breakfast\b.{0,12}[0-9]{1,4}\s*(?:€|eur)\b", t)
         or re.search(r"\bbreakfast\b\s*(?:€|eur)\s*[0-9]", t)
-        or re.search(r"\bbreakfast\b.{0,20}(?:extra charge|for an extra fee|surcharge|optional|not included)", t)
+        or re.search(r"\bbreakfast\b.{0,12}[0-9]{1,4}\s*(?:€|eur)\b", t)
+        or re.search(r"\bbreakfast\b.{0,30}(?:extra charge|for an extra fee|surcharge|optional|not included)", t)
     )
 
     # Half-board implies both meals included (treat 'Breakfast & dinner included' as HB)
@@ -266,6 +277,22 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
             flags["breakfast_included"] = False
         elif has_breakfast_included:
             flags["breakfast_included"] = True
+
+    if DEBUG_BREAKFAST and ("breakfast" in t or "hb" in t or "half board" in t or "dinner" in t):
+        # Keep logs compact. This helps diagnose cases where breakfast is being over-attributed.
+        snippet = t[:220].replace("\n", " ")
+        print(
+            "🧪 BF_CLASSIFY:",
+            {
+                "b_inc": flags.get("breakfast_included"),
+                "hb": flags.get("half_board"),
+                "din": flags.get("dinner_included"),
+                "b_included_sig": has_breakfast_included,
+                "b_fee_sig": has_breakfast_fee,
+                "b_and_d": has_breakfast_and_dinner,
+                "snippet": snippet,
+            },
+        )
 
         # Dinner only (rare) if explicitly stated
         if has_dinner_included:
@@ -306,6 +333,27 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
         if flags["dinner_included"] is True:
             parts.append("Dinner")
     flags["rate_plan"] = " + ".join(parts) if parts else None
+
+    # Optional debug: show breakfast/half-board classification and key triggers.
+    # This helps diagnose cases where the offer blob misses the "Good breakfast € X" line.
+    global _DEBUG_BREAKFAST_COUNT
+    if DEBUG_BREAKFAST and _DEBUG_BREAKFAST_COUNT < DEBUG_BREAKFAST_LIMIT and ("breakfast" in t or "dinner" in t or "half board" in t):
+        _DEBUG_BREAKFAST_COUNT += 1
+        try:
+            print(
+                "🧪 BFDBG:",
+                {
+                    "b_included": flags.get("breakfast_included"),
+                    "din": flags.get("dinner_included"),
+                    "hb": flags.get("half_board"),
+                    "fee": has_breakfast_fee,
+                    "b_inc_tok": has_breakfast_included,
+                    "b_din_tok": has_breakfast_and_dinner,
+                },
+            )
+            print("🧪 BFDBG_BLOB:", t[:260])
+        except Exception:
+            pass
 
     return flags
 
