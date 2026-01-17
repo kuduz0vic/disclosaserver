@@ -595,7 +595,52 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\",\"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\",\"a:has-text('Show all')\",\n    \"a:has-text('Show more')\",\"a:has-text('See all rooms')\",\n]\n# Extra expanders for *rate variants* that are sometimes collapsed.\n# These tend to be per-room controls like \"More options\", \"View all prices\",\n# or similar. We click them aggressively to ensure optional-breakfast variants\n# (e.g. \"Good breakfast € 18\") are actually present in the DOM.\nVARIANT_EXPAND_SELECTORS = [",
+        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\",\"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\",\"a:has-text('Show all')\",\n    \"a:has-text('Show more')\",\"a:has-text('See all rooms')\",\n]\n# Nuclear expanders: open per-room dialogs so Booking renders *all* rate rows.\n# This is expensive, but fixes properties where \"Good breakfast € 18\" offers\n# only appear after opening the \"Select rooms\" chooser.\nSELECT_ROOM_SELECTORS = [\n    \"button:has-text('Select rooms')\",",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "SELECT_ROOM_SELECTORS",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "SELECT_ROOM_SELECTORS = [\n    \"button:has-text('Select rooms')\",\n    \"a:has-text('Select rooms')\",\n    \"button:has-text('See availability')\",\n    \"a:has-text('See availability')\",\n    \"button:has-text('Show prices')\",\n    \"a:has-text('Show prices')\",\n]\nMODAL_ROOT_SELECTORS = [\n    \"[data-testid='select-room-modal']\",",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "MODAL_ROOT_SELECTORS",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "MODAL_ROOT_SELECTORS = [\n    \"[data-testid='select-room-modal']\",\n    \"[role='dialog']\",\n    \"div[aria-modal='true']\",\n]\nDEBUG_VARIANTS = os.getenv(\"DEBUG_VARIANTS\", \"0\") == \"1\"\nDEBUG_MODAL_VARIANTS = os.getenv(\"DEBUG_MODAL_VARIANTS\", \"0\") == \"1\"\nDEBUG_BREAKFAST_FEE = os.getenv(\"DEBUG_BREAKFAST_FEE\", \"0\") == \"1\"\n# Extra expanders for *rate variants* that are sometimes collapsed.\n# These tend to be per-room controls like \"More options\", \"View all prices\",",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "DEBUG_VARIANTS",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "DEBUG_VARIANTS = os.getenv(\"DEBUG_VARIANTS\", \"0\") == \"1\"\nDEBUG_MODAL_VARIANTS = os.getenv(\"DEBUG_MODAL_VARIANTS\", \"0\") == \"1\"\nDEBUG_BREAKFAST_FEE = os.getenv(\"DEBUG_BREAKFAST_FEE\", \"0\") == \"1\"\n# Extra expanders for *rate variants* that are sometimes collapsed.\n# These tend to be per-room controls like \"More options\", \"View all prices\",\n# or similar. We click them aggressively to ensure optional-breakfast variants\n# (e.g. \"Good breakfast € 18\") are actually present in the DOM.\nVARIANT_EXPAND_SELECTORS = [\n    \"button:has-text('More options')\",\n    \"button:has-text('More Choices')\",",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "DEBUG_MODAL_VARIANTS",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "DEBUG_MODAL_VARIANTS = os.getenv(\"DEBUG_MODAL_VARIANTS\", \"0\") == \"1\"\nDEBUG_BREAKFAST_FEE = os.getenv(\"DEBUG_BREAKFAST_FEE\", \"0\") == \"1\"\n# Extra expanders for *rate variants* that are sometimes collapsed.\n# These tend to be per-room controls like \"More options\", \"View all prices\",\n# or similar. We click them aggressively to ensure optional-breakfast variants\n# (e.g. \"Good breakfast € 18\") are actually present in the DOM.\nVARIANT_EXPAND_SELECTORS = [\n    \"button:has-text('More options')\",\n    \"button:has-text('More Choices')\",\n    \"button:has-text('Other options')\",",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "DEBUG_BREAKFAST_FEE",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "DEBUG_BREAKFAST_FEE = os.getenv(\"DEBUG_BREAKFAST_FEE\", \"0\") == \"1\"\n# Extra expanders for *rate variants* that are sometimes collapsed.\n# These tend to be per-room controls like \"More options\", \"View all prices\",\n# or similar. We click them aggressively to ensure optional-breakfast variants\n# (e.g. \"Good breakfast € 18\") are actually present in the DOM.\nVARIANT_EXPAND_SELECTORS = [\n    \"button:has-text('More options')\",\n    \"button:has-text('More Choices')\",\n    \"button:has-text('Other options')\",\n    \"button:has-text('View all')\",",
         "detail": "scraper_core",
         "documentation": {}
     },

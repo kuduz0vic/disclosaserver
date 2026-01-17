@@ -381,6 +381,28 @@ EXPAND_SELECTORS = [
     "a:has-text('Show more')","a:has-text('See all rooms')",
 ]
 
+# Nuclear expanders: open per-room dialogs so Booking renders *all* rate rows.
+# This is expensive, but fixes properties where "Good breakfast € 18" offers
+# only appear after opening the "Select rooms" chooser.
+SELECT_ROOM_SELECTORS = [
+    "button:has-text('Select rooms')",
+    "a:has-text('Select rooms')",
+    "button:has-text('See availability')",
+    "a:has-text('See availability')",
+    "button:has-text('Show prices')",
+    "a:has-text('Show prices')",
+]
+
+MODAL_ROOT_SELECTORS = [
+    "[data-testid='select-room-modal']",
+    "[role='dialog']",
+    "div[aria-modal='true']",
+]
+
+DEBUG_VARIANTS = os.getenv("DEBUG_VARIANTS", "0") == "1"
+DEBUG_MODAL_VARIANTS = os.getenv("DEBUG_MODAL_VARIANTS", "0") == "1"
+DEBUG_BREAKFAST_FEE = os.getenv("DEBUG_BREAKFAST_FEE", "0") == "1"
+
 # Extra expanders for *rate variants* that are sometimes collapsed.
 # These tend to be per-room controls like "More options", "View all prices",
 # or similar. We click them aggressively to ensure optional-breakfast variants
@@ -540,6 +562,246 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
         if h == last_h:
             break
         last_h = h
+
+
+def _close_overlays(page) -> None:
+    """Best-effort close any modal/drawer Booking opened."""
+    # ESC closes most dialogs
+    try:
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
+    except Exception:
+        pass
+
+    # Common close button patterns
+    for sel in [
+        "button[aria-label='Close']",
+        "button:has-text('Close')",
+        "button:has-text('Done')",
+        "button[data-testid='close-modal']",
+    ]:
+        try:
+            page.locator(sel).first.click(timeout=400)
+            page.wait_for_timeout(150)
+        except Exception:
+            pass
+
+
+def _collect_rows_from_root(root, adults: int, *, hotel_name: str, slug: str, checkin: str) -> List[Dict[str, Any]]:
+    """Parse offer rows inside an arbitrary root node (modal/drawer/container).
+
+    We purposely keep this broad: find price elements, then build an offer blob
+    from a nearby container. This is the only reliable way to capture optional
+    breakfast fee offers on some properties.
+    """
+    rows: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    # Find price elements inside root
+    price_els = []
+    for psel in PRICE_SELECTORS:
+        try:
+            price_els.extend(root.query_selector_all(psel))
+        except Exception:
+            continue
+
+    for pel in price_els:
+        try:
+            raw_price_text = (pel.inner_text() or "").strip()
+        except Exception:
+            raw_price_text = ""
+        price = clean_price(raw_price_text)
+        if price is None:
+            continue
+
+        # Build a *tight* offer blob: find the smallest ancestor that still contains
+        # the relevant policy/meal text but does NOT include other offers.
+        # Key idea: stop at the first ancestor that contains only this price (or this
+        # price + its struck-through original price).
+        try:
+            price_sels = [
+                "[data-testid='price-and-discounted-price']",
+                "[data-testid='price-and-discounted-price--no-discount']",
+                "[data-testid='recommended-price']",
+                "[data-testid='price-and-discounted-price--pay-now']",
+                ".prco-valign-middle-helper",
+                ".bui-price-display__value",
+                ".prco-inline-price",
+            ]
+            offer_blob = pel.evaluate(
+                """(el, priceSels) => {
+                  function clean(s){return (s||'').replace(/\s+/g,' ').trim();}
+                  function countPrices(node){
+                    let c = 0;
+                    for (const sel of priceSels){
+                      const els = node.querySelectorAll(sel);
+                      if (els && els.length) c += els.length;
+                    }
+                    return c;
+                  }
+                  let node = el;
+                  let best = el;
+                  for (let depth=0; depth<14 && node; depth++){
+                    const c = countPrices(node);
+                    // 1 price: perfect. 2 prices: common when original + discounted.
+                    if (c <= 2){ best = node; }
+                    // if it starts containing many prices, we've gone too far.
+                    if (c > 3) break;
+                    node = node.parentElement;
+                  }
+                  const t = clean(best.textContent || '');
+                  return t;
+                }""",
+                price_sels,
+            ) or ""
+        except Exception:
+            offer_blob = ""
+
+        # Room name: search upwards within root first
+        room_name = None
+        try:
+            room_name = pel.evaluate(
+                """(el, sels) => {
+                  function clean(s){ return (s||'').replace(/\s+/g,' ').trim(); }
+                  let node = el;
+                  for (let depth=0; depth<12 && node; depth++){
+                    for (const sel of sels){
+                      const cand = node.querySelector(sel);
+                      if (cand){
+                        const t = clean(cand.innerText || cand.textContent || '');
+                        if (t && t.length < 220) return t;
+                      }
+                    }
+                    node = node.parentElement;
+                  }
+                  return null;
+                }""",
+                ROOM_NAME_SELECTORS,
+            )
+        except Exception:
+            room_name = None
+        room_name = re.sub(r"\s+", " ", (room_name or "")).strip()
+        if not room_name:
+            continue
+
+        # Capacity: strict; must equal adults
+        capacity = _extract_sleeps_capacity(offer_blob) or _extract_max_persons_from_text(offer_blob) or _extract_only_for_guest(offer_blob)
+        if capacity is None or capacity != adults:
+            continue
+
+        flags = parse_rate_attributes(offer_blob)
+        rate_key = build_rate_key(flags)
+
+        key = (slug, checkin, room_name, adults, rate_key, float(price))
+        if key in seen:
+            continue
+        seen.add(key)
+
+        rows.append(
+            {
+                "hotel": hotel_name,
+                "slug": slug,
+                "checkin": checkin,
+                "room": room_name,
+                "occupancy": adults,
+                "price": float(price),
+                "breakfast_included": flags.get("breakfast_included"),
+                "dinner_included": flags.get("dinner_included"),
+                "half_board": flags.get("half_board"),
+                "free_cancellation": flags.get("free_cancellation"),
+                "nonrefundable": flags.get("nonrefundable"),
+                "prepay_required": flags.get("prepay_required"),
+                "rate_plan": flags.get("rate_plan"),
+                "rate_key": rate_key,
+            }
+        )
+
+        if os.getenv("DEBUG_BREAKFAST", "0") == "1":
+            print(
+                f"🧪 BFDBG adults={adults} cap={capacity} price={price} bf={flags.get('breakfast_included')} hb={flags.get('half_board')} room={room_name[:50]} | blob={offer_blob[:220]}"
+            )
+
+    return rows
+
+
+def _open_all_select_rooms_and_collect(page, adults: int, *, hotel_name: str, slug: str, checkin: str, should_cancel=None) -> List[Dict[str, Any]]:
+    """Click every visible 'Select rooms' / availability button and parse offers.
+
+    This is the nuclear option to make Booking render variants it otherwise hides.
+    """
+    out: List[Dict[str, Any]] = []
+
+    if os.getenv("OPEN_ALL_SELECT_ROOMS", "1") != "1":
+        return out
+
+    # Gather unique clickable elements (avoid infinite loops)
+    buttons = []
+    for sel in SELECT_ROOM_SELECTORS:
+        try:
+            loc = page.locator(sel)
+            cnt = loc.count()
+            for i in range(min(cnt, 30)):
+                try:
+                    buttons.append(loc.nth(i))
+                except Exception:
+                    pass
+        except Exception:
+            continue
+
+    # De-dupe by text + bounding box (rough)
+    uniq = []
+    seen = set()
+    for b in buttons:
+        try:
+            txt = (b.inner_text() or "").strip()
+        except Exception:
+            txt = ""
+        key = txt[:60]
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(b)
+
+    for idx, b in enumerate(uniq[:25]):
+        if should_cancel and should_cancel():
+            break
+        try:
+            b.scroll_into_view_if_needed(timeout=1500)
+        except Exception:
+            pass
+        try:
+            b.click(timeout=2000)
+            page.wait_for_timeout(350)
+        except Exception:
+            continue
+
+        # Parse offers from the currently open dialog/drawer if present; else parse from page.
+        roots = []
+        for rsel in [
+            "[role='dialog']",
+            "[data-testid='modal']",
+            "[data-testid='overlay']",
+            "div[aria-modal='true']",
+        ]:
+            try:
+                el = page.query_selector(rsel)
+                if el:
+                    roots.append(el)
+                    break
+            except Exception:
+                pass
+        if not roots:
+            roots = [page]
+
+        for root in roots:
+            try:
+                out.extend(_collect_rows_from_root(root, adults, hotel_name=hotel_name, slug=slug, checkin=checkin))
+            except Exception:
+                pass
+
+        _close_overlays(page)
+
+    return out
 
 
 def _safe_click_all(page, selector: str, max_clicks: int = 50, timeout: int = 300):
