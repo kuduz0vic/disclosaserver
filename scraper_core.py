@@ -65,6 +65,14 @@ DEBUG_MEAL_BLOB = os.getenv("DEBUG_MEAL_BLOB", "0") == "1"
 DEBUG_CAPACITY = os.getenv("DEBUG_CAPACITY", "0") == "1"
 DEBUG_CAPACITY_LIMIT = int(os.getenv("DEBUG_CAPACITY_LIMIT", "30"))
 
+# Debug classification for breakfast/half-board per offer.
+# NOTE: This only prints if you enable it.
+DEBUG_BREAKFAST = os.getenv("DEBUG_BREAKFAST", "0") == "1"
+DEBUG_BREAKFAST_LIMIT = int(os.getenv("DEBUG_BREAKFAST_LIMIT", "40"))
+_DEBUG_BREAKFAST_COUNT = 0
+DEBUG_BREAKFAST_LIMIT = int(os.getenv("DEBUG_BREAKFAST_LIMIT", "40"))
+DEBUG_BREAKFAST_SLUG = (os.getenv("DEBUG_BREAKFAST_SLUG", "") or "").strip().lower()
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Supabase headers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -213,16 +221,14 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
     }
 
     # ── Meals ─────────────────────────────────────────────────────────────
-    # Breakfast included
-    if re.search(r"\bbreakfast\b.{0,40}\bincluded\b", t) or re.search(r"\bwith breakfast\b", t) or "includes breakfast" in t:
-        flags["breakfast_included"] = True
-    # Breakfast available but not included (common: 'Good breakfast € 18')
-    elif "breakfast" in t and re.search(r"\bgood breakfast\b|not included|extra charge|for an extra fee|surcharge|optional|\beur\b|€|per person|pp\b", t):
-        flags["breakfast_included"] = False
+    # IMPORTANT:
+    # Booking can render multiple offers (breakfast optional + breakfast included + half-board)
+    # under the same room. If our "offer blob" accidentally captures text from a sibling offer,
+    # we can see BOTH "breakfast included" and "Good breakfast € 18". In that scenario the
+    # fee line is the most *offer-specific* signal.
 
-    # Half-board / breakfast+dinner included
     hb_kw = r"(half[-\s]?board|\bhb\b|halvpension|halbpension|polpenzion|polpansion)"
-    dinner_kw = r"(dinner|evening meal|supper|abendessen|vecerj|večerj)"
+    dinner_kw = r"(dinner|evening meal|supper|abendessen|vecerj|večerj|večerja)"
 
     has_hb = bool(re.search(hb_kw, t))
     has_breakfast_and_dinner = bool(
@@ -236,17 +242,64 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
     has_dinner_included = bool(re.search(dinner_kw + r".{0,40}included", t)) or bool(re.search(r"includes.{0,40}" + dinner_kw, t))
     has_ai = bool(re.search(r"\ball[-\s]?inclusive\b", t))
 
+    # Breakfast signals
+    has_breakfast_included = bool(
+        re.search(r"\bbreakfast\b.{0,40}\bincluded\b", t)
+        or re.search(r"\bwith breakfast\b", t)
+        or "includes breakfast" in t
+    )
+    # Fee / optional signals (very common: 'Good breakfast € 18' or 'Good breakfast 18 €').
+    # We keep this intentionally broad: if the blob shows a breakfast price, it's NOT included.
+    has_breakfast_fee = bool(
+        re.search(r"\bgood breakfast\b\s*(?:€|eur)\s*[0-9]", t)
+        or re.search(r"\bgood breakfast\b.{0,12}[0-9]{1,4}\s*(?:€|eur)\b", t)
+        or re.search(r"\bbreakfast\b\s*(?:€|eur)\s*[0-9]", t)
+        or re.search(r"\bbreakfast\b.{0,12}[0-9]{1,4}\s*(?:€|eur)\b", t)
+        # Weak signal: currency may be rendered separately; treat a visible number near breakfast as a fee.
+        or re.search(r"\bgood breakfast\b.{0,12}[0-9]{1,4}\b", t)
+        or re.search(r"\bbreakfast\b.{0,12}[0-9]{1,4}\b", t)
+        or re.search(r"\bbreakfast\b.{0,30}(?:extra charge|for an extra fee|surcharge|optional|not included)", t)
+    )
+
+    # Half-board implies both meals included (treat 'Breakfast & dinner included' as HB)
     if has_hb or has_breakfast_and_dinner:
         flags["half_board"] = True
         flags["dinner_included"] = True
-        if flags["breakfast_included"] is None:
-            flags["breakfast_included"] = True
+        flags["breakfast_included"] = True
     elif has_ai:
         flags["dinner_included"] = True
         if flags["breakfast_included"] is None:
             flags["breakfast_included"] = True
-    elif has_dinner_included:
-        flags["dinner_included"] = True
+    else:
+        # Not half-board: classify breakfast.
+        # IMPORTANT: Booking sometimes renders multiple offer blocks close together.
+        # If our blob accidentally contains both "breakfast included" (from another offer)
+        # and "Good breakfast € 18" (a paid add-on), we must NOT default to included.
+        # The paid-add-on signal is more specific for the current offer.
+        if has_breakfast_fee and not has_breakfast_and_dinner:
+            flags["breakfast_included"] = False
+        elif has_breakfast_included:
+            flags["breakfast_included"] = True
+
+    if DEBUG_BREAKFAST and ("breakfast" in t or "hb" in t or "half board" in t or "dinner" in t):
+        # Keep logs compact. This helps diagnose cases where breakfast is being over-attributed.
+        snippet = t[:220].replace("\n", " ")
+        print(
+            "🧪 BF_CLASSIFY:",
+            {
+                "b_inc": flags.get("breakfast_included"),
+                "hb": flags.get("half_board"),
+                "din": flags.get("dinner_included"),
+                "b_included_sig": has_breakfast_included,
+                "b_fee_sig": has_breakfast_fee,
+                "b_and_d": has_breakfast_and_dinner,
+                "snippet": snippet,
+            },
+        )
+
+        # Dinner only (rare) if explicitly stated
+        if has_dinner_included:
+            flags["dinner_included"] = True
 
     # ── Cancellation ──────────────────────────────────────────────────────
     nonref = bool(re.search(r"\bnon[-\s]?refundable\b|\bno refund\b|\btotal cost to cancel\b|\bnrf\b", t))
@@ -283,6 +336,27 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
         if flags["dinner_included"] is True:
             parts.append("Dinner")
     flags["rate_plan"] = " + ".join(parts) if parts else None
+
+    # Optional debug: show breakfast/half-board classification and key triggers.
+    # This helps diagnose cases where the offer blob misses the "Good breakfast € X" line.
+    global _DEBUG_BREAKFAST_COUNT
+    if DEBUG_BREAKFAST and _DEBUG_BREAKFAST_COUNT < DEBUG_BREAKFAST_LIMIT and ("breakfast" in t or "dinner" in t or "half board" in t):
+        _DEBUG_BREAKFAST_COUNT += 1
+        try:
+            print(
+                "🧪 BFDBG:",
+                {
+                    "b_included": flags.get("breakfast_included"),
+                    "din": flags.get("dinner_included"),
+                    "hb": flags.get("half_board"),
+                    "fee": has_breakfast_fee,
+                    "b_inc_tok": has_breakfast_included,
+                    "b_din_tok": has_breakfast_and_dinner,
+                },
+            )
+            print("🧪 BFDBG_BLOB:", t[:260])
+        except Exception:
+            pass
 
     return flags
 
@@ -481,11 +555,14 @@ def _is_room_name_row(row) -> Optional[str]:
     except Exception:
         return None
 
-def _offer_blob_for_variant(room_name_row, variant_row, *, include_header: bool = True) -> str:
-    """
-    Build a blob that is still LOCAL to this offer:
-    - variant row text (inner_text + textContent)
-    - plus header row text (helps capture meal plan shown on header)
+def _variant_blob(variant_row) -> str:
+    """Text blob scoped to a *single offer row*.
+
+    IMPORTANT: do NOT merge the header row here.
+    For some properties (Occidental is the worst offender), the header row can
+    contain meal-plan text from a different variant. If we merge it, we end up
+    marking *all* variants as breakfast-included, which makes "no breakfast"
+    offers disappear from the data.
     """
     chunks: List[str] = []
     try:
@@ -502,8 +579,57 @@ def _offer_blob_for_variant(room_name_row, variant_row, *, include_header: bool 
     if vtc and vtc != vtxt:
         chunks.append(vtc)
 
-    # Include header row text (often has breakfast + room meta)
-    if include_header and room_name_row is not None:
+    blob = " ".join([c for c in chunks if c]).strip()
+    return re.sub(r"\s+", " ", blob)
+
+
+
+
+def _offer_blob_for_price(price_el, max_depth: int = 8) -> str:
+    # Return a tight text blob for the specific offer/variant that contains this price.
+    # This is critical for optional-breakfast cases, where one room has multiple offers
+    # (breakfast included vs breakfast for a fee) inside the SAME table row.
+    try:
+        return (price_el.evaluate(
+            """(el, maxDepth) => {
+              const clean = (s) => (s||'').replace(/\s+/g,' ').trim();
+              const hasSignal = (t) => {
+                const s = (t||'').toLowerCase();
+                return (
+                  s.includes('breakfast') || s.includes('dinner') || s.includes('half') ||
+                  s.includes('cancellation') || s.includes('non-refundable') ||
+                  s.includes('prepayment') || s.includes('pay at the property') ||
+                  s.includes('select rooms') || s.includes('total cost to cancel')
+                );
+              };
+              let node = el;
+              let best = '';
+              for (let d=0; d<maxDepth && node; d++){
+                const t = clean(node.innerText || node.textContent || '');
+                if (t && t.length > best.length && hasSignal(t)) best = t;
+                if (node.tagName && node.tagName.toLowerCase()==='tr') break;
+                node = node.parentElement;
+              }
+              if (!best){
+                // fallback: row-level
+                const tr = el.closest('tr');
+                if (tr) best = clean(tr.innerText || tr.textContent || '');
+              }
+              return best || '';
+            }""",
+            max_depth,
+        ) or '').strip()
+    except Exception:
+        return ''
+def _offer_blob_for_variant(room_name_row, variant_row) -> str:
+    """Offer blob used for CAPACITY detection (may include header row).
+
+    We still keep this local, but capacity signals (icons/max persons) sometimes
+    only live on the header row.
+    """
+    chunks: List[str] = [_variant_blob(variant_row)]
+
+    if room_name_row is not None:
         try:
             htxt = (room_name_row.inner_text() or "").strip()
         except Exception:
@@ -519,8 +645,7 @@ def _offer_blob_for_variant(room_name_row, variant_row, *, include_header: bool 
             chunks.append(htc)
 
     blob = " ".join([c for c in chunks if c]).strip()
-    blob = re.sub(r"\s+", " ", blob)
-    return blob
+    return re.sub(r"\s+", " ", blob)
 
 def _detect_offer_capacity(room_name_row, variant_row, blob: str) -> Optional[int]:
     """
@@ -593,8 +718,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
             if not current_room or not current_room_row:
                 continue
 
-            blob_offer = _offer_blob_for_variant(current_room_row, tr, include_header=False)
-            blob = _offer_blob_for_variant(current_room_row, tr, include_header=True)
+            blob = _offer_blob_for_variant(current_room_row, tr)
             if DEBUG_MEAL_BLOB and ("breakfast" in blob.lower() or "dinner" in blob.lower() or "half" in blob.lower()):
                 print("🧪 MEAL_BLOB:", blob[:800])
 
@@ -607,10 +731,19 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
             if cap is None or cap != adults:
                 continue
 
-            attrs = parse_rate_attributes(blob_offer)
-            rate_key = build_rate_key(attrs)
+            # --- Variant attributes (meals/refund/prepay) ---
+            # IMPORTANT:
 
-            vtxt = blob  # already includes variant + header; ok for price fallback
+            # We must compute flags per *offer* (per price element), not per variant row.
+            # Booking often renders multiple offers inside the same <tr>.
+
+            header_txt = ""
+            try:
+                header_txt = (current_room_row.inner_text() or "").strip()
+            except Exception:
+                header_txt = ""
+
+            vtxt = blob  # used only as fallback text for price parsing
 
             found_price = False
             for psel in PRICE_SELECTORS:
@@ -619,9 +752,22 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                         ptxt = (pel.inner_text() or "").strip()
                     except Exception:
                         ptxt = ""
-                    price = clean_price(ptxt) or clean_price(vtxt)
+                    price = clean_price(ptxt)
+                    if price is None:
+                        # fallback: sometimes the price text is not directly on the element
+                        price = clean_price(pel.text_content() or "")
                     if price is None:
                         continue
+
+                    offer_blob = _offer_blob_for_price(pel, tr, current_room_row)
+
+                    # Header fallback only if the offer blob has *no* meal keywords.
+                    if header_txt and not re.search(r"(breakfast|dinner|half[-\s]?board|halfboard|breakfast\s*&\s*dinner)", offer_blob, re.I):
+                        if re.search(r"(breakfast|dinner|half[-\s]?board|halfboard|breakfast\s*&\s*dinner)", header_txt, re.I):
+                            offer_blob = (offer_blob + " " + header_txt).strip()
+
+                    attrs = parse_rate_attributes(offer_blob)
+                    rate_key = build_rate_key(attrs)
 
                     results.append({
                         "room": current_room,
@@ -639,8 +785,11 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
                     found_price = True
 
             if not found_price:
+                # last resort: try to parse a price from the variant blob; flags from the variant row
                 price = clean_price(vtxt)
                 if price is not None:
+                    attrs = parse_rate_attributes(vtxt)
+                    rate_key = build_rate_key(attrs)
                     results.append({
                         "room": current_room,
                         "price": float(price),

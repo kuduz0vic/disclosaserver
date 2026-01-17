@@ -487,7 +487,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "USER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\nDEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "USER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\nDEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# Debug classification for breakfast/half-board per offer.",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -496,7 +496,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "DEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"",
+        "peekOfCode": "DEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# Debug classification for breakfast/half-board per offer.\n# NOTE: This only prints if you enable it.\nDEBUG_BREAKFAST = os.getenv(\"DEBUG_BREAKFAST\", \"0\") == \"1\"\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\n_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -505,7 +505,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "DEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"",
+        "peekOfCode": "DEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# Debug classification for breakfast/half-board per offer.\n# NOTE: This only prints if you enable it.\nDEBUG_BREAKFAST = os.getenv(\"DEBUG_BREAKFAST\", \"0\") == \"1\"\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\n_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -514,7 +514,52 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "DEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"\n    if upsert:",
+        "peekOfCode": "DEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# Debug classification for breakfast/half-board per offer.\n# NOTE: This only prints if you enable it.\nDEBUG_BREAKFAST = os.getenv(\"DEBUG_BREAKFAST\", \"0\") == \"1\"\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\n_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "DEBUG_BREAKFAST",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "DEBUG_BREAKFAST = os.getenv(\"DEBUG_BREAKFAST\", \"0\") == \"1\"\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\n_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "DEBUG_BREAKFAST_LIMIT",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "DEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\n_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "_DEBUG_BREAKFAST_COUNT",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "DEBUG_BREAKFAST_LIMIT",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "DEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "DEBUG_BREAKFAST_SLUG",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "DEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"\n    if upsert:",
         "detail": "scraper_core",
         "documentation": {}
     },
