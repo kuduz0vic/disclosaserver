@@ -65,14 +65,6 @@ DEBUG_MEAL_BLOB = os.getenv("DEBUG_MEAL_BLOB", "0") == "1"
 DEBUG_CAPACITY = os.getenv("DEBUG_CAPACITY", "0") == "1"
 DEBUG_CAPACITY_LIMIT = int(os.getenv("DEBUG_CAPACITY_LIMIT", "30"))
 
-# Debug classification for breakfast/half-board per offer.
-# NOTE: This only prints if you enable it.
-DEBUG_BREAKFAST = os.getenv("DEBUG_BREAKFAST", "0") == "1"
-DEBUG_BREAKFAST_LIMIT = int(os.getenv("DEBUG_BREAKFAST_LIMIT", "40"))
-_DEBUG_BREAKFAST_COUNT = 0
-DEBUG_BREAKFAST_LIMIT = int(os.getenv("DEBUG_BREAKFAST_LIMIT", "40"))
-DEBUG_BREAKFAST_SLUG = (os.getenv("DEBUG_BREAKFAST_SLUG", "") or "").strip().lower()
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Supabase headers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -221,14 +213,16 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
     }
 
     # ── Meals ─────────────────────────────────────────────────────────────
-    # IMPORTANT:
-    # Booking can render multiple offers (breakfast optional + breakfast included + half-board)
-    # under the same room. If our "offer blob" accidentally captures text from a sibling offer,
-    # we can see BOTH "breakfast included" and "Good breakfast € 18". In that scenario the
-    # fee line is the most *offer-specific* signal.
+    # Breakfast included
+    if re.search(r"\bbreakfast\b.{0,40}\bincluded\b", t) or re.search(r"\bwith breakfast\b", t) or "includes breakfast" in t:
+        flags["breakfast_included"] = True
+    # Breakfast available but not included (common: 'Good breakfast € 18')
+    elif "breakfast" in t and re.search(r"\bgood breakfast\b|not included|extra charge|for an extra fee|surcharge|optional|\beur\b|€|per person|pp\b", t):
+        flags["breakfast_included"] = False
 
+    # Half-board / breakfast+dinner included
     hb_kw = r"(half[-\s]?board|\bhb\b|halvpension|halbpension|polpenzion|polpansion)"
-    dinner_kw = r"(dinner|evening meal|supper|abendessen|vecerj|večerj|večerja)"
+    dinner_kw = r"(dinner|evening meal|supper|abendessen|vecerj|večerj)"
 
     has_hb = bool(re.search(hb_kw, t))
     has_breakfast_and_dinner = bool(
@@ -242,64 +236,17 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
     has_dinner_included = bool(re.search(dinner_kw + r".{0,40}included", t)) or bool(re.search(r"includes.{0,40}" + dinner_kw, t))
     has_ai = bool(re.search(r"\ball[-\s]?inclusive\b", t))
 
-    # Breakfast signals
-    has_breakfast_included = bool(
-        re.search(r"\bbreakfast\b.{0,40}\bincluded\b", t)
-        or re.search(r"\bwith breakfast\b", t)
-        or "includes breakfast" in t
-    )
-    # Fee / optional signals (very common: 'Good breakfast € 18' or 'Good breakfast 18 €').
-    # We keep this intentionally broad: if the blob shows a breakfast price, it's NOT included.
-    has_breakfast_fee = bool(
-        re.search(r"\bgood breakfast\b\s*(?:€|eur)\s*[0-9]", t)
-        or re.search(r"\bgood breakfast\b.{0,12}[0-9]{1,4}\s*(?:€|eur)\b", t)
-        or re.search(r"\bbreakfast\b\s*(?:€|eur)\s*[0-9]", t)
-        or re.search(r"\bbreakfast\b.{0,12}[0-9]{1,4}\s*(?:€|eur)\b", t)
-        # Weak signal: currency may be rendered separately; treat a visible number near breakfast as a fee.
-        or re.search(r"\bgood breakfast\b.{0,12}[0-9]{1,4}\b", t)
-        or re.search(r"\bbreakfast\b.{0,12}[0-9]{1,4}\b", t)
-        or re.search(r"\bbreakfast\b.{0,30}(?:extra charge|for an extra fee|surcharge|optional|not included)", t)
-    )
-
-    # Half-board implies both meals included (treat 'Breakfast & dinner included' as HB)
     if has_hb or has_breakfast_and_dinner:
         flags["half_board"] = True
         flags["dinner_included"] = True
-        flags["breakfast_included"] = True
+        if flags["breakfast_included"] is None:
+            flags["breakfast_included"] = True
     elif has_ai:
         flags["dinner_included"] = True
         if flags["breakfast_included"] is None:
             flags["breakfast_included"] = True
-    else:
-        # Not half-board: classify breakfast.
-        # IMPORTANT: Booking sometimes renders multiple offer blocks close together.
-        # If our blob accidentally contains both "breakfast included" (from another offer)
-        # and "Good breakfast € 18" (a paid add-on), we must NOT default to included.
-        # The paid-add-on signal is more specific for the current offer.
-        if has_breakfast_fee and not has_breakfast_and_dinner:
-            flags["breakfast_included"] = False
-        elif has_breakfast_included:
-            flags["breakfast_included"] = True
-
-    if DEBUG_BREAKFAST and ("breakfast" in t or "hb" in t or "half board" in t or "dinner" in t):
-        # Keep logs compact. This helps diagnose cases where breakfast is being over-attributed.
-        snippet = t[:220].replace("\n", " ")
-        print(
-            "🧪 BF_CLASSIFY:",
-            {
-                "b_inc": flags.get("breakfast_included"),
-                "hb": flags.get("half_board"),
-                "din": flags.get("dinner_included"),
-                "b_included_sig": has_breakfast_included,
-                "b_fee_sig": has_breakfast_fee,
-                "b_and_d": has_breakfast_and_dinner,
-                "snippet": snippet,
-            },
-        )
-
-        # Dinner only (rare) if explicitly stated
-        if has_dinner_included:
-            flags["dinner_included"] = True
+    elif has_dinner_included:
+        flags["dinner_included"] = True
 
     # ── Cancellation ──────────────────────────────────────────────────────
     nonref = bool(re.search(r"\bnon[-\s]?refundable\b|\bno refund\b|\btotal cost to cancel\b|\bnrf\b", t))
@@ -337,27 +284,6 @@ def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:
             parts.append("Dinner")
     flags["rate_plan"] = " + ".join(parts) if parts else None
 
-    # Optional debug: show breakfast/half-board classification and key triggers.
-    # This helps diagnose cases where the offer blob misses the "Good breakfast € X" line.
-    global _DEBUG_BREAKFAST_COUNT
-    if DEBUG_BREAKFAST and _DEBUG_BREAKFAST_COUNT < DEBUG_BREAKFAST_LIMIT and ("breakfast" in t or "dinner" in t or "half board" in t):
-        _DEBUG_BREAKFAST_COUNT += 1
-        try:
-            print(
-                "🧪 BFDBG:",
-                {
-                    "b_included": flags.get("breakfast_included"),
-                    "din": flags.get("dinner_included"),
-                    "hb": flags.get("half_board"),
-                    "fee": has_breakfast_fee,
-                    "b_inc_tok": has_breakfast_included,
-                    "b_din_tok": has_breakfast_and_dinner,
-                },
-            )
-            print("🧪 BFDBG_BLOB:", t[:260])
-        except Exception:
-            pass
-
     return flags
 
 def build_rate_key(flags: dict) -> str:
@@ -380,136 +306,6 @@ EXPAND_SELECTORS = [
     "button:has-text('See all rooms')","a:has-text('Show all')",
     "a:has-text('Show more')","a:has-text('See all rooms')",
 ]
-
-# Nuclear expanders: open per-room dialogs so Booking renders *all* rate rows.
-# This is expensive, but fixes properties where "Good breakfast € 18" offers
-# only appear after opening the "Select rooms" chooser.
-SELECT_ROOM_SELECTORS = [
-    "button:has-text('Select rooms')",
-    "a:has-text('Select rooms')",
-    "button:has-text('See availability')",
-    "a:has-text('See availability')",
-    "button:has-text('Show prices')",
-    "a:has-text('Show prices')",
-]
-
-MODAL_ROOT_SELECTORS = [
-    "[data-testid='select-room-modal']",
-    "[role='dialog']",
-    "div[aria-modal='true']",
-]
-
-DEBUG_VARIANTS = os.getenv("DEBUG_VARIANTS", "0") == "1"
-DEBUG_MODAL_VARIANTS = os.getenv("DEBUG_MODAL_VARIANTS", "0") == "1"
-DEBUG_BREAKFAST_FEE = os.getenv("DEBUG_BREAKFAST_FEE", "0") == "1"
-
-# Extra expanders for *rate variants* that are sometimes collapsed.
-# These tend to be per-room controls like "More options", "View all prices",
-# or similar. We click them aggressively to ensure optional-breakfast variants
-# (e.g. "Good breakfast € 18") are actually present in the DOM.
-VARIANT_EXPAND_SELECTORS = [
-    "button:has-text('More options')",
-    "button:has-text('More Choices')",
-    "button:has-text('Other options')",
-    "button:has-text('View all')",
-    "button:has-text('View all prices')",
-    "button:has-text('See more')",
-    "button:has-text('Show prices')",
-    "a:has-text('More options')",
-    "a:has-text('View all')",
-    "a:has-text('View all prices')",
-    "[data-testid*='show-more']",
-    "[data-testid*='ShowMore']",
-    "[data-testid*='toggle']",
-    "[aria-label*='more']",
-]
-
-def _click_all(page, selector: str, max_clicks: int = 80):
-    try:
-        loc = page.locator(selector)
-        n = loc.count()
-        if not n:
-            return 0
-        clicked = 0
-        for i in range(min(n, max_clicks)):
-            try:
-                loc.nth(i).click(timeout=350)
-                clicked += 1
-                page.wait_for_timeout(90)
-            except Exception:
-                continue
-        return clicked
-    except Exception:
-        return 0
-
-def expand_rate_variants(page, should_cancel: Optional[Callable[[], bool]] = None):
-    def cancelled() -> bool:
-        return bool(should_cancel and should_cancel())
-
-    # Try a few passes; clicking often reveals more buttons.
-    for _ in range(4):
-        if cancelled():
-            return
-        any_clicked = 0
-        for sel in VARIANT_EXPAND_SELECTORS:
-            if cancelled():
-                return
-            any_clicked += _click_all(page, sel)
-        if any_clicked == 0:
-            break
-
-# Booking often hides additional rate variants behind per-room expanders.
-# Labels vary by A/B test and locale; we brute-click likely expanders.
-EXPAND_VARIANTS_SELECTORS = [
-    "button:has-text('More options')",
-    "button:has-text('More prices')",
-    "button:has-text('Show more prices')",
-    "button:has-text('View all')",
-    "button:has-text('Show all prices')",
-    "button:has-text('Other options')",
-    "button:has-text('See options')",
-    "a:has-text('More options')",
-    "a:has-text('Show all prices')",
-    "[data-testid*='show-more']",
-    "[data-testid*='toggle']",
-]
-
-# Backwards-compatible alias used by helper functions below.
-EXPAND_VARIANT_SELECTORS = EXPAND_VARIANTS_SELECTORS
-EXPAND_VARIANT_TESTID_SELECTORS: List[str] = []
-
-def _click_all(page, selector: str, max_clicks: int = 40, timeout_ms: int = 350):
-    try:
-        loc = page.locator(selector)
-        n = loc.count()
-    except Exception:
-        return 0
-
-    clicked = 0
-    # Click from bottom to top to reduce reflow issues.
-    for i in range(min(n, max_clicks) - 1, -1, -1):
-        try:
-            loc.nth(i).click(timeout=timeout_ms)
-            clicked += 1
-        except Exception:
-            pass
-    return clicked
-
-def expand_all_rate_variants(page, should_cancel: Optional[Callable[[], bool]] = None):
-    def cancelled() -> bool:
-        return bool(should_cancel and should_cancel())
-
-    # Run a few passes because expanding one room can reveal nested expanders.
-    for _ in range(4):
-        if cancelled():
-            return
-        total = 0
-        for sel in EXPAND_VARIANTS_SELECTORS:
-            if cancelled():
-                return
-            total += _click_all(page, sel)
-        if total:
-            page.wait_for_timeout(180)
 ROOM_TABLE_SELECTORS = ["#hprt-table", "table.hprt-table", "[data-testid='hprt-table']", "[data-testid='availability-table']"]
 
 PRICE_SELECTORS = [
@@ -542,9 +338,6 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
             except Exception:
                 pass
 
-    # Expand per-room variant controls (important for optional breakfast rows).
-    _expand_rate_variants(page, should_cancel=should_cancel)
-
     last_h = 0
     for _ in range(SCROLL_PASSES):
         if cancelled(): return
@@ -555,299 +348,10 @@ def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bo
                 page.locator(sel).first.click(timeout=400)
             except Exception:
                 pass
-
-        # Keep trying to expand rate variants as we scroll (lazy-loaded).
-        _expand_rate_variants(page, should_cancel=should_cancel)
         h = page.evaluate("document.body.scrollHeight")
         if h == last_h:
             break
         last_h = h
-
-
-def _close_overlays(page) -> None:
-    """Best-effort close any modal/drawer Booking opened."""
-    # ESC closes most dialogs
-    try:
-        page.keyboard.press("Escape")
-        page.wait_for_timeout(150)
-    except Exception:
-        pass
-
-    # Common close button patterns
-    for sel in [
-        "button[aria-label='Close']",
-        "button:has-text('Close')",
-        "button:has-text('Done')",
-        "button[data-testid='close-modal']",
-    ]:
-        try:
-            page.locator(sel).first.click(timeout=400)
-            page.wait_for_timeout(150)
-        except Exception:
-            pass
-
-
-def _collect_rows_from_root(root, adults: int, *, hotel_name: str, slug: str, checkin: str) -> List[Dict[str, Any]]:
-    """Parse offer rows inside an arbitrary root node (modal/drawer/container).
-
-    We purposely keep this broad: find price elements, then build an offer blob
-    from a nearby container. This is the only reliable way to capture optional
-    breakfast fee offers on some properties.
-    """
-    rows: List[Dict[str, Any]] = []
-    seen: set = set()
-
-    # Find price elements inside root
-    price_els = []
-    for psel in PRICE_SELECTORS:
-        try:
-            price_els.extend(root.query_selector_all(psel))
-        except Exception:
-            continue
-
-    for pel in price_els:
-        try:
-            raw_price_text = (pel.inner_text() or "").strip()
-        except Exception:
-            raw_price_text = ""
-        price = clean_price(raw_price_text)
-        if price is None:
-            continue
-
-        # Build a *tight* offer blob: find the smallest ancestor that still contains
-        # the relevant policy/meal text but does NOT include other offers.
-        # Key idea: stop at the first ancestor that contains only this price (or this
-        # price + its struck-through original price).
-        try:
-            price_sels = [
-                "[data-testid='price-and-discounted-price']",
-                "[data-testid='price-and-discounted-price--no-discount']",
-                "[data-testid='recommended-price']",
-                "[data-testid='price-and-discounted-price--pay-now']",
-                ".prco-valign-middle-helper",
-                ".bui-price-display__value",
-                ".prco-inline-price",
-            ]
-            offer_blob = pel.evaluate(
-                """(el, priceSels) => {
-                  function clean(s){return (s||'').replace(/\s+/g,' ').trim();}
-                  function countPrices(node){
-                    let c = 0;
-                    for (const sel of priceSels){
-                      const els = node.querySelectorAll(sel);
-                      if (els && els.length) c += els.length;
-                    }
-                    return c;
-                  }
-                  let node = el;
-                  let best = el;
-                  for (let depth=0; depth<14 && node; depth++){
-                    const c = countPrices(node);
-                    // 1 price: perfect. 2 prices: common when original + discounted.
-                    if (c <= 2){ best = node; }
-                    // if it starts containing many prices, we've gone too far.
-                    if (c > 3) break;
-                    node = node.parentElement;
-                  }
-                  const t = clean(best.textContent || '');
-                  return t;
-                }""",
-                price_sels,
-            ) or ""
-        except Exception:
-            offer_blob = ""
-
-        # Room name: search upwards within root first
-        room_name = None
-        try:
-            room_name = pel.evaluate(
-                """(el, sels) => {
-                  function clean(s){ return (s||'').replace(/\s+/g,' ').trim(); }
-                  let node = el;
-                  for (let depth=0; depth<12 && node; depth++){
-                    for (const sel of sels){
-                      const cand = node.querySelector(sel);
-                      if (cand){
-                        const t = clean(cand.innerText || cand.textContent || '');
-                        if (t && t.length < 220) return t;
-                      }
-                    }
-                    node = node.parentElement;
-                  }
-                  return null;
-                }""",
-                ROOM_NAME_SELECTORS,
-            )
-        except Exception:
-            room_name = None
-        room_name = re.sub(r"\s+", " ", (room_name or "")).strip()
-        if not room_name:
-            continue
-
-        # Capacity: strict; must equal adults
-        capacity = _extract_sleeps_capacity(offer_blob) or _extract_max_persons_from_text(offer_blob) or _extract_only_for_guest(offer_blob)
-        if capacity is None or capacity != adults:
-            continue
-
-        flags = parse_rate_attributes(offer_blob)
-        rate_key = build_rate_key(flags)
-
-        key = (slug, checkin, room_name, adults, rate_key, float(price))
-        if key in seen:
-            continue
-        seen.add(key)
-
-        rows.append(
-            {
-                "hotel": hotel_name,
-                "slug": slug,
-                "checkin": checkin,
-                "room": room_name,
-                "occupancy": adults,
-                "price": float(price),
-                "breakfast_included": flags.get("breakfast_included"),
-                "dinner_included": flags.get("dinner_included"),
-                "half_board": flags.get("half_board"),
-                "free_cancellation": flags.get("free_cancellation"),
-                "nonrefundable": flags.get("nonrefundable"),
-                "prepay_required": flags.get("prepay_required"),
-                "rate_plan": flags.get("rate_plan"),
-                "rate_key": rate_key,
-            }
-        )
-
-        if os.getenv("DEBUG_BREAKFAST", "0") == "1":
-            print(
-                f"🧪 BFDBG adults={adults} cap={capacity} price={price} bf={flags.get('breakfast_included')} hb={flags.get('half_board')} room={room_name[:50]} | blob={offer_blob[:220]}"
-            )
-
-    return rows
-
-
-def _open_all_select_rooms_and_collect(page, adults: int, *, hotel_name: str, slug: str, checkin: str, should_cancel=None) -> List[Dict[str, Any]]:
-    """Click every visible 'Select rooms' / availability button and parse offers.
-
-    This is the nuclear option to make Booking render variants it otherwise hides.
-    """
-    out: List[Dict[str, Any]] = []
-
-    if os.getenv("OPEN_ALL_SELECT_ROOMS", "1") != "1":
-        return out
-
-    # Gather unique clickable elements (avoid infinite loops)
-    buttons = []
-    for sel in SELECT_ROOM_SELECTORS:
-        try:
-            loc = page.locator(sel)
-            cnt = loc.count()
-            for i in range(min(cnt, 30)):
-                try:
-                    buttons.append(loc.nth(i))
-                except Exception:
-                    pass
-        except Exception:
-            continue
-
-    # De-dupe by text + bounding box (rough)
-    uniq = []
-    seen = set()
-    for b in buttons:
-        try:
-            txt = (b.inner_text() or "").strip()
-        except Exception:
-            txt = ""
-        key = txt[:60]
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(b)
-
-    for idx, b in enumerate(uniq[:25]):
-        if should_cancel and should_cancel():
-            break
-        try:
-            b.scroll_into_view_if_needed(timeout=1500)
-        except Exception:
-            pass
-        try:
-            b.click(timeout=2000)
-            page.wait_for_timeout(350)
-        except Exception:
-            continue
-
-        # Parse offers from the currently open dialog/drawer if present; else parse from page.
-        roots = []
-        for rsel in [
-            "[role='dialog']",
-            "[data-testid='modal']",
-            "[data-testid='overlay']",
-            "div[aria-modal='true']",
-        ]:
-            try:
-                el = page.query_selector(rsel)
-                if el:
-                    roots.append(el)
-                    break
-            except Exception:
-                pass
-        if not roots:
-            roots = [page]
-
-        for root in roots:
-            try:
-                out.extend(_collect_rows_from_root(root, adults, hotel_name=hotel_name, slug=slug, checkin=checkin))
-            except Exception:
-                pass
-
-        _close_overlays(page)
-
-    return out
-
-
-def _safe_click_all(page, selector: str, max_clicks: int = 50, timeout: int = 300):
-    """Click all matching elements best-effort.
-
-    Some expanders are overlapped/stale; we ignore failures.
-    """
-    try:
-        loc = page.locator(selector)
-        n = loc.count()
-        if not n:
-            return 0
-        n = min(n, max_clicks)
-        clicked = 0
-        for i in range(n):
-            try:
-                loc.nth(i).click(timeout=timeout)
-                clicked += 1
-                page.wait_for_timeout(80)
-            except Exception:
-                continue
-        return clicked
-    except Exception:
-        return 0
-
-
-def _expand_rate_variants(page, should_cancel: Optional[Callable[[], bool]] = None):
-    """Brute-click known rate-variant expanders.
-
-    This is the main lever for cases where Booking collapses
-    the "Good breakfast € 18" (optional) rows for some dates.
-    """
-    if should_cancel and should_cancel():
-        return
-
-    # 1) Common literal labels
-    for sel in EXPAND_VARIANT_SELECTORS:
-        if should_cancel and should_cancel():
-            return
-        _safe_click_all(page, sel, max_clicks=40, timeout=250)
-
-    # 2) Data-testid based selectors (A/B tests)
-    for sel in EXPAND_VARIANT_TESTID_SELECTORS:
-        if should_cancel and should_cancel():
-            return
-        _safe_click_all(page, sel, max_clicks=80, timeout=250)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Strict occupancy helpers (per-offer)
@@ -977,14 +481,11 @@ def _is_room_name_row(row) -> Optional[str]:
     except Exception:
         return None
 
-def _variant_blob(variant_row) -> str:
-    """Text blob scoped to a *single offer row*.
-
-    IMPORTANT: do NOT merge the header row here.
-    For some properties (Occidental is the worst offender), the header row can
-    contain meal-plan text from a different variant. If we merge it, we end up
-    marking *all* variants as breakfast-included, which makes "no breakfast"
-    offers disappear from the data.
+def _offer_blob_for_variant(room_name_row, variant_row, *, include_header: bool = True) -> str:
+    """
+    Build a blob that is still LOCAL to this offer:
+    - variant row text (inner_text + textContent)
+    - plus header row text (helps capture meal plan shown on header)
     """
     chunks: List[str] = []
     try:
@@ -1001,19 +502,8 @@ def _variant_blob(variant_row) -> str:
     if vtc and vtc != vtxt:
         chunks.append(vtc)
 
-    blob = " ".join([c for c in chunks if c]).strip()
-    return re.sub(r"\s+", " ", blob)
-
-
-def _offer_blob_for_variant(room_name_row, variant_row) -> str:
-    """Offer blob used for CAPACITY detection (may include header row).
-
-    We still keep this local, but capacity signals (icons/max persons) sometimes
-    only live on the header row.
-    """
-    chunks: List[str] = [_variant_blob(variant_row)]
-
-    if room_name_row is not None:
+    # Include header row text (often has breakfast + room meta)
+    if include_header and room_name_row is not None:
         try:
             htxt = (room_name_row.inner_text() or "").strip()
         except Exception:
@@ -1029,7 +519,8 @@ def _offer_blob_for_variant(room_name_row, variant_row) -> str:
             chunks.append(htc)
 
     blob = " ".join([c for c in chunks if c]).strip()
-    return re.sub(r"\s+", " ", blob)
+    blob = re.sub(r"\s+", " ", blob)
+    return blob
 
 def _detect_offer_capacity(room_name_row, variant_row, blob: str) -> Optional[int]:
     """
@@ -1102,7 +593,8 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
             if not current_room or not current_room_row:
                 continue
 
-            blob = _offer_blob_for_variant(current_room_row, tr)
+            blob_offer = _offer_blob_for_variant(current_room_row, tr, include_header=False)
+            blob = _offer_blob_for_variant(current_room_row, tr, include_header=True)
             if DEBUG_MEAL_BLOB and ("breakfast" in blob.lower() or "dinner" in blob.lower() or "half" in blob.lower()):
                 print("🧪 MEAL_BLOB:", blob[:800])
 
@@ -1115,27 +607,7 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
             if cap is None or cap != adults:
                 continue
 
-            # --- Variant attributes (meals/refund/prepay) ---
-            # IMPORTANT:
-            # Do NOT blindly mix the room-name/header row into the attribute blob.
-            # Booking often renders "Breakfast included" somewhere in the room header
-            # even when only *some* variants include it. If we merge header text,
-            # we accidentally mark optional-breakfast offers as included.
-            variant_blob = _variant_blob(tr)
-
-            # If the variant blob contains no meal keywords at all, allow header
-            # meal text as a fallback (some layouts put meal plan on the header).
-            header_txt = ""
-            try:
-                header_txt = (current_room_row.inner_text() or "").strip()
-            except Exception:
-                header_txt = ""
-
-            if header_txt and not re.search(r"\b(breakfast|dinner|half[-\s]?board|halfboard|breakfast\s*&\s*dinner)\b", variant_blob, re.I):
-                if re.search(r"\b(breakfast|dinner|half[-\s]?board|halfboard|breakfast\s*&\s*dinner)\b", header_txt, re.I):
-                    variant_blob = (variant_blob + " " + header_txt).strip()
-
-            attrs = parse_rate_attributes(variant_blob)
+            attrs = parse_rate_attributes(blob_offer)
             rate_key = build_rate_key(attrs)
 
             vtxt = blob  # already includes variant + header; ok for price fallback
@@ -1347,6 +819,7 @@ def scrape_hotel_for_dates(
                     page.wait_for_selector(",".join(ROOM_TABLE_SELECTORS), timeout=WAIT_TABLE_TIMEOUT_MS)
                 except Exception:
                     pass
+
                 rows = collect_room_rows_for_adults(page, adults)
                 if not rows:
                     rows = collect_card_rows_for_adults(page, adults)

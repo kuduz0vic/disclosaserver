@@ -357,24 +357,6 @@
         "documentation": {}
     },
     {
-        "label": "expand_rate_variants",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def expand_rate_variants(page, should_cancel: Optional[Callable[[], bool]] = None):\n    def cancelled() -> bool:\n        return bool(should_cancel and should_cancel())\n    # Try a few passes; clicking often reveals more buttons.\n    for _ in range(4):\n        if cancelled():\n            return\n        any_clicked = 0\n        for sel in VARIANT_EXPAND_SELECTORS:\n            if cancelled():",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "expand_all_rate_variants",
-        "kind": 2,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "def expand_all_rate_variants(page, should_cancel: Optional[Callable[[], bool]] = None):\n    def cancelled() -> bool:\n        return bool(should_cancel and should_cancel())\n    # Run a few passes because expanding one room can reveal nested expanders.\n    for _ in range(4):\n        if cancelled():\n            return\n        total = 0\n        for sel in EXPAND_VARIANTS_SELECTORS:\n            if cancelled():",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
         "label": "aggressively_expand_and_scroll",
         "kind": 2,
         "importPath": "scraper_core",
@@ -505,7 +487,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "USER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\nDEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# Debug classification for breakfast/half-board per offer.",
+        "peekOfCode": "USER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\nDEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -514,7 +496,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "DEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# Debug classification for breakfast/half-board per offer.\n# NOTE: This only prints if you enable it.\nDEBUG_BREAKFAST = os.getenv(\"DEBUG_BREAKFAST\", \"0\") == \"1\"\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\n_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()",
+        "peekOfCode": "DEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -523,7 +505,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "DEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# Debug classification for breakfast/half-board per offer.\n# NOTE: This only prints if you enable it.\nDEBUG_BREAKFAST = os.getenv(\"DEBUG_BREAKFAST\", \"0\") == \"1\"\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\n_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "DEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -532,52 +514,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "DEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# Debug classification for breakfast/half-board per offer.\n# NOTE: This only prints if you enable it.\nDEBUG_BREAKFAST = os.getenv(\"DEBUG_BREAKFAST\", \"0\") == \"1\"\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\n_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "DEBUG_BREAKFAST",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "DEBUG_BREAKFAST = os.getenv(\"DEBUG_BREAKFAST\", \"0\") == \"1\"\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\n_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "DEBUG_BREAKFAST_LIMIT",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "DEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\n_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "_DEBUG_BREAKFAST_COUNT",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "_DEBUG_BREAKFAST_COUNT = 0\nDEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "DEBUG_BREAKFAST_LIMIT",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "DEBUG_BREAKFAST_LIMIT = int(os.getenv(\"DEBUG_BREAKFAST_LIMIT\", \"40\"))\nDEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "DEBUG_BREAKFAST_SLUG",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "DEBUG_BREAKFAST_SLUG = (os.getenv(\"DEBUG_BREAKFAST_SLUG\", \"\") or \"\").strip().lower()\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"\n    if upsert:",
+        "peekOfCode": "DEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"\n    if upsert:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -595,79 +532,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\",\"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\",\"a:has-text('Show all')\",\n    \"a:has-text('Show more')\",\"a:has-text('See all rooms')\",\n]\n# Nuclear expanders: open per-room dialogs so Booking renders *all* rate rows.\n# This is expensive, but fixes properties where \"Good breakfast € 18\" offers\n# only appear after opening the \"Select rooms\" chooser.\nSELECT_ROOM_SELECTORS = [\n    \"button:has-text('Select rooms')\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "SELECT_ROOM_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "SELECT_ROOM_SELECTORS = [\n    \"button:has-text('Select rooms')\",\n    \"a:has-text('Select rooms')\",\n    \"button:has-text('See availability')\",\n    \"a:has-text('See availability')\",\n    \"button:has-text('Show prices')\",\n    \"a:has-text('Show prices')\",\n]\nMODAL_ROOT_SELECTORS = [\n    \"[data-testid='select-room-modal']\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "MODAL_ROOT_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "MODAL_ROOT_SELECTORS = [\n    \"[data-testid='select-room-modal']\",\n    \"[role='dialog']\",\n    \"div[aria-modal='true']\",\n]\nDEBUG_VARIANTS = os.getenv(\"DEBUG_VARIANTS\", \"0\") == \"1\"\nDEBUG_MODAL_VARIANTS = os.getenv(\"DEBUG_MODAL_VARIANTS\", \"0\") == \"1\"\nDEBUG_BREAKFAST_FEE = os.getenv(\"DEBUG_BREAKFAST_FEE\", \"0\") == \"1\"\n# Extra expanders for *rate variants* that are sometimes collapsed.\n# These tend to be per-room controls like \"More options\", \"View all prices\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "DEBUG_VARIANTS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "DEBUG_VARIANTS = os.getenv(\"DEBUG_VARIANTS\", \"0\") == \"1\"\nDEBUG_MODAL_VARIANTS = os.getenv(\"DEBUG_MODAL_VARIANTS\", \"0\") == \"1\"\nDEBUG_BREAKFAST_FEE = os.getenv(\"DEBUG_BREAKFAST_FEE\", \"0\") == \"1\"\n# Extra expanders for *rate variants* that are sometimes collapsed.\n# These tend to be per-room controls like \"More options\", \"View all prices\",\n# or similar. We click them aggressively to ensure optional-breakfast variants\n# (e.g. \"Good breakfast € 18\") are actually present in the DOM.\nVARIANT_EXPAND_SELECTORS = [\n    \"button:has-text('More options')\",\n    \"button:has-text('More Choices')\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "DEBUG_MODAL_VARIANTS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "DEBUG_MODAL_VARIANTS = os.getenv(\"DEBUG_MODAL_VARIANTS\", \"0\") == \"1\"\nDEBUG_BREAKFAST_FEE = os.getenv(\"DEBUG_BREAKFAST_FEE\", \"0\") == \"1\"\n# Extra expanders for *rate variants* that are sometimes collapsed.\n# These tend to be per-room controls like \"More options\", \"View all prices\",\n# or similar. We click them aggressively to ensure optional-breakfast variants\n# (e.g. \"Good breakfast € 18\") are actually present in the DOM.\nVARIANT_EXPAND_SELECTORS = [\n    \"button:has-text('More options')\",\n    \"button:has-text('More Choices')\",\n    \"button:has-text('Other options')\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "DEBUG_BREAKFAST_FEE",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "DEBUG_BREAKFAST_FEE = os.getenv(\"DEBUG_BREAKFAST_FEE\", \"0\") == \"1\"\n# Extra expanders for *rate variants* that are sometimes collapsed.\n# These tend to be per-room controls like \"More options\", \"View all prices\",\n# or similar. We click them aggressively to ensure optional-breakfast variants\n# (e.g. \"Good breakfast € 18\") are actually present in the DOM.\nVARIANT_EXPAND_SELECTORS = [\n    \"button:has-text('More options')\",\n    \"button:has-text('More Choices')\",\n    \"button:has-text('Other options')\",\n    \"button:has-text('View all')\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "VARIANT_EXPAND_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "VARIANT_EXPAND_SELECTORS = [\n    \"button:has-text('More options')\",\n    \"button:has-text('More Choices')\",\n    \"button:has-text('Other options')\",\n    \"button:has-text('View all')\",\n    \"button:has-text('View all prices')\",\n    \"button:has-text('See more')\",\n    \"button:has-text('Show prices')\",\n    \"a:has-text('More options')\",\n    \"a:has-text('View all')\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "EXPAND_VARIANTS_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "EXPAND_VARIANTS_SELECTORS = [\n    \"button:has-text('More options')\",\n    \"button:has-text('More prices')\",\n    \"button:has-text('Show more prices')\",\n    \"button:has-text('View all')\",\n    \"button:has-text('Show all prices')\",\n    \"button:has-text('Other options')\",\n    \"button:has-text('See options')\",\n    \"a:has-text('More options')\",\n    \"a:has-text('Show all prices')\",",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "EXPAND_VARIANT_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "EXPAND_VARIANT_SELECTORS = EXPAND_VARIANTS_SELECTORS\nEXPAND_VARIANT_TESTID_SELECTORS: List[str] = []\ndef _click_all(page, selector: str, max_clicks: int = 40, timeout_ms: int = 350):\n    try:\n        loc = page.locator(selector)\n        n = loc.count()\n    except Exception:\n        return 0\n    clicked = 0\n    # Click from bottom to top to reduce reflow issues.",
+        "peekOfCode": "EXPAND_SELECTORS = [\n    \"button:has-text('Show all')\",\"button:has-text('Show more')\",\n    \"button:has-text('See all rooms')\",\"a:has-text('Show all')\",\n    \"a:has-text('Show more')\",\"a:has-text('See all rooms')\",\n]\nROOM_TABLE_SELECTORS = [\"#hprt-table\", \"table.hprt-table\", \"[data-testid='hprt-table']\", \"[data-testid='availability-table']\"]\nPRICE_SELECTORS = [\n    \"[data-testid='price-and-discounted-price']\",\n    \"[data-testid='price-and-discounted-price--no-discount']\",\n    \"[data-testid='recommended-price']\",",
         "detail": "scraper_core",
         "documentation": {}
     },
