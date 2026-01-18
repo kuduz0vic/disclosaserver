@@ -631,7 +631,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def now_iso_z() -> str:\n    return (dt.datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(\"+00:00\", \"Z\"))\ndef _req_with_retry(method, path, *, params=None, json_body=None, headers=None, timeout=None):\n    url = f\"{SUPABASE_URL}{path}\"\n    for attempt in range(HTTP_RETRIES + 1):\n        try:\n            r = requests.request(\n                method,\n                url,\n                params=params,",
+        "peekOfCode": "def now_iso_z() -> str:\n    return (\n        dt.datetime.now(timezone.utc)\n        .replace(microsecond=0)\n        .isoformat()\n        .replace(\"+00:00\", \"Z\")\n    )\ndef _req_with_retry(method, path, *, params=None, json_body=None, headers=None, timeout=None):\n    url = f\"{SUPABASE_URL}{path}\"\n    for attempt in range(HTTP_RETRIES + 1):",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -640,7 +640,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def http_get(path: str, params: Dict[str, Any]) -> requests.Response:\n    return _req_with_retry(\"GET\", path, params=params, headers=supabase_headers(json_pref=False))\ndef http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False) -> requests.Response:\n    h = supabase_headers()\n    if prefer_return:\n        h[\"Prefer\"] = \"return=representation\"\n    return _req_with_retry(\"PATCH\", path, params=params, json_body=json_body, headers=h)\ndef http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False, prefer: Optional[str] = None, timeout_sec: int = None) -> requests.Response:\n    h = supabase_headers(upsert=upsert)\n    if prefer:",
+        "peekOfCode": "def http_get(path: str, params: Dict[str, Any]) -> requests.Response:\n    return _req_with_retry(\n        \"GET\", path, params=params, headers=supabase_headers(json_pref=False)\n    )\ndef http_patch(\n    path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False\n) -> requests.Response:\n    h = supabase_headers()\n    if prefer_return:\n        h[\"Prefer\"] = \"return=representation\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -649,7 +649,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def http_patch(path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False) -> requests.Response:\n    h = supabase_headers()\n    if prefer_return:\n        h[\"Prefer\"] = \"return=representation\"\n    return _req_with_retry(\"PATCH\", path, params=params, json_body=json_body, headers=h)\ndef http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False, prefer: Optional[str] = None, timeout_sec: int = None) -> requests.Response:\n    h = supabase_headers(upsert=upsert)\n    if prefer:\n        h[\"Prefer\"] = prefer\n    return _req_with_retry(\"POST\", path, params=params, json_body=json_body, headers=h, timeout=timeout_sec or HTTP_TIMEOUT_SEC)",
+        "peekOfCode": "def http_patch(\n    path: str, params: Dict[str, Any], json_body: Dict[str, Any], prefer_return=False\n) -> requests.Response:\n    h = supabase_headers()\n    if prefer_return:\n        h[\"Prefer\"] = \"return=representation\"\n    return _req_with_retry(\"PATCH\", path, params=params, json_body=json_body, headers=h)\ndef http_post(\n    path: str,\n    params: Dict[str, Any],",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -658,7 +658,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def http_post(path: str, params: Dict[str, Any], json_body: Any, upsert=False, prefer: Optional[str] = None, timeout_sec: int = None) -> requests.Response:\n    h = supabase_headers(upsert=upsert)\n    if prefer:\n        h[\"Prefer\"] = prefer\n    return _req_with_retry(\"POST\", path, params=params, json_body=json_body, headers=h, timeout=timeout_sec or HTTP_TIMEOUT_SEC)\ndef http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    return _req_with_retry(\"DELETE\", path, params=params, headers=supabase_headers(json_pref=False))\n# ──────────────────────────────────────────────────────────────────────────────\n# Fetch hotels (merge by hotel_id; independent of relationship cache)\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "def http_post(\n    path: str,\n    params: Dict[str, Any],\n    json_body: Any,\n    upsert=False,\n    prefer: Optional[str] = None,\n    timeout_sec: int = None,\n) -> requests.Response:\n    h = supabase_headers(upsert=upsert)\n    if prefer:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -667,7 +667,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    return _req_with_retry(\"DELETE\", path, params=params, headers=supabase_headers(json_pref=False))\n# ──────────────────────────────────────────────────────────────────────────────\n# Fetch hotels (merge by hotel_id; independent of relationship cache)\n# ──────────────────────────────────────────────────────────────────────────────\ndef _get_user_links(user_id: str) -> List[dict]:\n    r = http_get(\n        \"/rest/v1/user_hotels\",\n        {\"select\": \"hotel_id,link_type,inserted_at\", \"user_id\": f\"eq.{user_id}\", \"order\": \"inserted_at.asc\"},\n    )",
+        "peekOfCode": "def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    return _req_with_retry(\n        \"DELETE\", path, params=params, headers=supabase_headers(json_pref=False)\n    )\n# ──────────────────────────────────────────────────────────────────────────────\n# Fetch hotels (merge by hotel_id; independent of relationship cache)\n# ──────────────────────────────────────────────────────────────────────────────\ndef _get_user_links(user_id: str) -> List[dict]:\n    r = http_get(\n        \"/rest/v1/user_hotels\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -676,7 +676,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def get_own_hotel(user_id: str):\n    links = _get_user_links(user_id)\n    if not links:\n        return None\n    for l in links:\n        if l.get(\"link_type\") == \"own\":\n            slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n            if slug:\n                cc = (l.get(\"booking_cc\") or \"\").lower() or None\n                return {\"hotel_id\": l[\"hotel_id\"], \"name\": l[\"name\"] or \"My Hotel\", \"slug\": slug, \"cc\": cc}",
+        "peekOfCode": "def get_own_hotel(user_id: str):\n    links = _get_user_links(user_id)\n    if not links:\n        return None\n    for l in links:\n        if l.get(\"link_type\") == \"own\":\n            slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n            if slug:\n                cc = (l.get(\"booking_cc\") or \"\").lower() or None\n                return {",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -694,7 +694,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def fetch_next_pending_job() -> Optional[dict]:\n    r = http_get(\n        f\"/rest/v1/{JOBS_TABLE}\",\n        {\"select\": \"*\", \"status\": \"eq.pending\", \"order\": \"created_at.asc\", \"limit\": 1},\n    )\n    rows = r.json()\n    return rows[0] if rows else None\ndef claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(",
+        "peekOfCode": "def fetch_next_pending_job() -> Optional[dict]:\n    r = http_get(\n        f\"/rest/v1/{JOBS_TABLE}\",\n        {\n            \"select\": \"*\",\n            \"status\": \"eq.pending\",\n            \"order\": \"created_at.asc\",\n            \"limit\": 1,\n        },\n    )",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -703,7 +703,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n            {\"status\": \"running\", \"started_at\": now_iso_z(), \"heartbeat_at\": now_iso_z()},\n            prefer_return=True,\n        )\n        rows = r.json() if r.text else []\n        return rows[0] if rows else None",
+        "peekOfCode": "def claim_job(job_id: str) -> Optional[dict]:\n    try:\n        r = http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"id\": f\"eq.{job_id}\", \"status\": \"eq.pending\"},\n            {\n                \"status\": \"running\",\n                \"started_at\": now_iso_z(),\n                \"heartbeat_at\": now_iso_z(),\n            },",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -712,7 +712,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    try:\n        http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, patch, prefer_return=False)\n    except HTTPError as e:\n        print(\"❌ set_job_fields error:\", e, \"| payload:\", patch, \"| resp:\", getattr(e.response, \"text\", \"\")[:400])\n        raise\ndef set_heartbeat(job_id: str):\n    try:\n        http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, {\"heartbeat_at\": now_iso_z()})\n    except Exception:",
+        "peekOfCode": "def set_job_fields(job_id: str, **patch):\n    try:\n        http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, patch, prefer_return=False)\n    except HTTPError as e:\n        print(\n            \"❌ set_job_fields error:\",\n            e,\n            \"| payload:\",\n            patch,\n            \"| resp:\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -721,7 +721,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def set_heartbeat(job_id: str):\n    try:\n        http_patch(f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, {\"heartbeat_at\": now_iso_z()})\n    except Exception:\n        pass\ndef is_canceled(job_id: str) -> bool:\n    try:\n        r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {\"select\": \"status\", \"id\": f\"eq.{job_id}\", \"limit\": 1})\n        rows = r.json()\n        if not rows:",
+        "peekOfCode": "def set_heartbeat(job_id: str):\n    try:\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\", {\"id\": f\"eq.{job_id}\"}, {\"heartbeat_at\": now_iso_z()}\n        )\n    except Exception:\n        pass\ndef is_canceled(job_id: str) -> bool:\n    try:\n        r = http_get(",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -730,7 +730,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def is_canceled(job_id: str) -> bool:\n    try:\n        r = http_get(f\"/rest/v1/{JOBS_TABLE}\", {\"select\": \"status\", \"id\": f\"eq.{job_id}\", \"limit\": 1})\n        rows = r.json()\n        if not rows:\n            return True\n        status = (rows[0].get(\"status\") or \"\").lower()\n        return status in (\"canceled\", \"failed\")\n    except HTTPError:\n        return True",
+        "peekOfCode": "def is_canceled(job_id: str) -> bool:\n    try:\n        r = http_get(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"select\": \"status\", \"id\": f\"eq.{job_id}\", \"limit\": 1},\n        )\n        rows = r.json()\n        if not rows:\n            return True\n        status = (rows[0].get(\"status\") or \"\").lower()",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -739,7 +739,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def reap_stale_jobs():\n    try:\n        cutoff = (dt.datetime.now(timezone.utc) - dt.timedelta(minutes=STALE_JOB_MINUTES)).isoformat().replace(\"+00:00\", \"Z\")\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"status\": \"eq.running\", \"or\": f\"(heartbeat_at.is.null,heartbeat_at.lt.{cutoff})\"},\n            {\"status\": \"failed\", \"finished_at\": now_iso_z(), \"last_error\": \"stale (reaped)\"},\n        )\n    except HTTPError:\n        pass",
+        "peekOfCode": "def reap_stale_jobs():\n    try:\n        cutoff = (\n            dt.datetime.now(timezone.utc) - dt.timedelta(minutes=STALE_JOB_MINUTES)\n        ).isoformat().replace(\"+00:00\", \"Z\")\n        http_patch(\n            f\"/rest/v1/{JOBS_TABLE}\",\n            {\"status\": \"eq.running\", \"or\": f\"(heartbeat_at.is.null,heartbeat_at.lt.{cutoff})\"},\n            {\"status\": \"failed\", \"finished_at\": now_iso_z(), \"last_error\": \"stale (reaped)\"},\n        )",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -748,7 +748,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def archive_previous_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(f\"/rest/v1/rpc/{HISTORY_FUNC}\", {}, {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin}, timeout_sec=20)\n        try:\n            n = int(r.json() or 0)\n        except Exception:\n            n = 0\n        print(f\"📦 Archived {n} old rows for {slug} {checkin} before upsert\")\n    except HTTPError as e:\n        print(\"⚠️ archive_previous_snapshot failed:\", e, getattr(e.response, \"text\", \"\")[:200])",
+        "peekOfCode": "def archive_previous_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/{HISTORY_FUNC}\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n            timeout_sec=20,\n        )\n        try:\n            n = int(r.json() or 0)",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -757,7 +757,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\"/rest/v1/rpc/fn_delete_day_rows\", {}, {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin}, timeout_sec=20)\n        try:\n            n = int(r.json() or 0)\n        except Exception:\n            n = 0\n        print(f\"🧹 Deleted {n} rows for {slug} {checkin} (sold out)\")\n    except HTTPError as e:\n        print(\"⚠️ delete_current_snapshot failed:\", e, getattr(e.response, \"text\", \"\")[:200])",
+        "peekOfCode": "def delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            \"/rest/v1/rpc/fn_delete_day_rows\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n            timeout_sec=20,\n        )\n        try:\n            n = int(r.json() or 0)",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -784,7 +784,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(f\"/rest/v1/{SOLDOUT_TABLE}\", {\"user_id\": f\"eq.{user_id}\", \"slug\": f\"eq.{slug.lower()}\", \"checkin\": f\"eq.{checkin}\"})\n        print(f\"🧽 Cleared sold-out marker for {slug} {checkin}\")\n    except Exception:\n        pass\n# ──────────────────────────────────────────────────────────────────────────────\n# upsert to RAW\n# ──────────────────────────────────────────────────────────────────────────────\ndef _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:",
+        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"user_id\": f\"eq.{user_id}\", \"slug\": f\"eq.{slug.lower()}\", \"checkin\": f\"eq.{checkin}\"},\n        )\n        print(f\"🧽 Cleared sold-out marker for {slug} {checkin}\")\n    except Exception:\n        pass\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -794,6 +794,15 @@
         "importPath": "worker_poll",
         "description": "worker_poll",
         "peekOfCode": "def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):\n    if not rows:\n        return\n    clean: List[Dict[str, Any]] = []\n    for r in rows:\n        base = {\n            \"user_id\": user_id,\n            \"slug\": r.get(\"slug\"),\n            \"hotel\": r.get(\"hotel\"),\n            \"checkin\": r.get(\"checkin\"),",
+        "detail": "worker_poll",
+        "documentation": {}
+    },
+    {
+        "label": "apply_job_slug_filter",
+        "kind": 2,
+        "importPath": "worker_poll",
+        "description": "worker_poll",
+        "peekOfCode": "def apply_job_slug_filter(job_meta: Dict[str, Any], hotels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:\n    \"\"\"If job.meta.slugs is a non-empty list, return only selected hotels.\n    Matching rules:\n      - exact match on scrape_slug (e.g. \"marienhof-reichenau__at\")\n      - base match (e.g. selecting \"marienhof-reichenau\" matches any cc)\n    IMPORTANT: This function does NOT force-own-hotel. If own isn't selected, it won't be scraped.\n    \"\"\"\n    selected = (job_meta or {}).get(\"slugs\")\n    if not (isinstance(selected, list) and len(selected) > 0):\n        return hotels",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -973,7 +982,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    stored_slug = (hotel.get(\"scrape_slug\") or hotel.get(\"slug\") or \"\").strip().lower()\n    base_slug, cc_from_slug = split_scrape_slug(stored_slug)\n    try:\n        cc = ((hotel.get(\"cc\") or \"\").strip().lower() or (cc_from_slug or \"\") or (resolve_cc_for_slug(base_slug) if RESOLVE_CC_IF_MISSING else None) or DEFAULT_CC)\n        stored_slug = to_scrape_slug(base_slug, cc)\n        raw_rows = scrape_hotel_for_dates(hotel[\"name\"], base_slug, cc, checkin, checkout, should_cancel=lambda: is_canceled(job_id))\n        deduped = dedupe_min_per_room_and_occupancy(raw_rows)\n        for r in deduped:",
+        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    stored_slug = (hotel.get(\"scrape_slug\") or hotel.get(\"slug\") or \"\").strip().lower()\n    base_slug, cc_from_slug = split_scrape_slug(stored_slug)\n    try:\n        cc = (\n            (hotel.get(\"cc\") or \"\").strip().lower()\n            or (cc_from_slug or \"\")\n            or (resolve_cc_for_slug(base_slug) if RESOLVE_CC_IF_MISSING else None)\n            or DEFAULT_CC",
         "detail": "worker_poll",
         "documentation": {}
     }
