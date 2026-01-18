@@ -334,7 +334,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def clean_price(text: str) -> Optional[float]:\n    if not text:\n        return None\n    txt = text.replace(\"\\xa0\", \" \").strip()\n    m = _CURRENCY_RE.search(txt)\n    if not m:\n        return None\n    return _parse_price_number(m.group(2))\n# ──────────────────────────────────────────────────────────────────────────────\n# Variant attribute parsing",
+        "peekOfCode": "def clean_price(text: str) -> Optional[float]:\n    if not text:\n        return None\n    txt = text.replace(\"\\xa0\", \" \").strip()\n    m = _CURRENCY_RE.search(txt)\n    if not m:\n        return None\n    return _parse_price_number(m.group(2))\n# ──────────────────────────────────────────────────────────────────────────────\n# Variant attribute parsing (EN-first, but tolerant)",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -343,7 +343,7 @@
         "kind": 2,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:\n    t = \" \".join((text or \"\").split()).lower()\n    flags: Dict[str, Optional[bool]] = {\n        \"breakfast_included\": None,\n        \"dinner_included\": None,\n        \"half_board\": None,\n        \"free_cancellation\": None,\n        \"nonrefundable\": None,\n        \"prepay_required\": None,\n        \"rate_plan\": None,",
+        "peekOfCode": "def parse_rate_attributes(text: str) -> Dict[str, Optional[bool]]:\n    \"\"\"Best-effort variant parsing from text near an offer.\n    We intentionally keep this tolerant:\n    - Booking is often forced to English via `lang=en-gb`, but some strings leak local language.\n    - For filtering we mainly care about:\n        breakfast_included (True/False/None)\n        dinner_included   (True/False/None)\n        half_board        (True/False/None)   <-- treat 'Breakfast & dinner included' as half-board\n        free_cancellation, nonrefundable, prepay_required\n    \"\"\"",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -362,6 +362,15 @@
         "importPath": "scraper_core",
         "description": "scraper_core",
         "peekOfCode": "def aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bool]] = None):\n    def cancelled() -> bool:\n        return bool(should_cancel and should_cancel())\n    for sel in [\"#onetrust-accept-btn-handler\", \"button#onetrust-accept-btn-handler\"]:\n        try:\n            if cancelled(): return\n            page.locator(sel).first.click(timeout=2000)\n        except Exception:\n            pass\n    for _ in range(3):",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "extract_effective_price",
+        "kind": 2,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "def extract_effective_price(price_el, fallback_text: str = \"\") -> Optional[float]:\n    \"\"\"Return the *current* price for an offer.\n    Strategy:\n      1) Inspect descendant nodes inside the price element and collect currency texts.\n         Mark each candidate as `strike` if it is rendered with line-through or inside <del>.\n      2) Prefer the smallest NON-strike price (usually the discounted/current price).\n      3) If nothing found, fall back to parsing fallback_text.\n    This avoids picking the original price when both original+discounted are present.\n    \"\"\"\n    try:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -460,7 +469,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "WAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"12000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# Debug toggles (Railway env vars)",
+        "peekOfCode": "WAIT_TABLE_TIMEOUT_MS = int(os.getenv(\"WAIT_TABLE_TIMEOUT_MS\", \"12000\"))\nSCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\nDEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -469,7 +478,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "SCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# Debug toggles (Railway env vars)\nDEBUG_MEALS_PER_PRICE = os.getenv(\"DEBUG_MEALS_PER_PRICE\", \"0\") == \"1\"   # prints per-price blob + flags (limited)",
+        "peekOfCode": "SCROLL_PASSES = int(os.getenv(\"SCROLL_PASSES\", \"12\"))\nHEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\nDEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -478,7 +487,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "HEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# Debug toggles (Railway env vars)\nDEBUG_MEALS_PER_PRICE = os.getenv(\"DEBUG_MEALS_PER_PRICE\", \"0\") == \"1\"   # prints per-price blob + flags (limited)\nDEBUG_MEALS_MISSES    = os.getenv(\"DEBUG_MEALS_MISSES\", \"0\") == \"1\"      # prints only when breakfast line exists but flags stay None",
+        "peekOfCode": "HEADLESS = os.getenv(\"HEADLESS\", \"1\") == \"1\"\nUSER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\nDEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -487,16 +496,34 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "USER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\n# Debug toggles (Railway env vars)\nDEBUG_MEALS_PER_PRICE = os.getenv(\"DEBUG_MEALS_PER_PRICE\", \"0\") == \"1\"   # prints per-price blob + flags (limited)\nDEBUG_MEALS_MISSES    = os.getenv(\"DEBUG_MEALS_MISSES\", \"0\") == \"1\"      # prints only when breakfast line exists but flags stay None\nDEBUG_OFFER_CONTEXT   = os.getenv(\"DEBUG_OFFER_CONTEXT\", \"0\") == \"1\"     # prints offer context for adults=1/3 when detected",
+        "peekOfCode": "USER_AGENT = (\n    os.getenv(\"USER_AGENT\")\n    or \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) \"\n       \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n       \"Chrome/124.0.0.0 Safari/537.36\"\n)\nDEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "scraper_core",
         "documentation": {}
     },
     {
-        "label": "DEBUG_MEALS_PER_PRICE",
+        "label": "DEBUG_MEAL_BLOB",
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "DEBUG_MEALS_PER_PRICE = os.getenv(\"DEBUG_MEALS_PER_PRICE\", \"0\") == \"1\"   # prints per-price blob + flags (limited)\nDEBUG_MEALS_MISSES    = os.getenv(\"DEBUG_MEALS_MISSES\", \"0\") == \"1\"      # prints only when breakfast line exists but flags stay None\nDEBUG_OFFER_CONTEXT   = os.getenv(\"DEBUG_OFFER_CONTEXT\", \"0\") == \"1\"     # prints offer context for adults=1/3 when detected\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers (used by worker; keep here)\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"",
+        "peekOfCode": "DEBUG_MEAL_BLOB = os.getenv(\"DEBUG_MEAL_BLOB\", \"0\") == \"1\"\nDEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "DEBUG_CAPACITY",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "DEBUG_CAPACITY = os.getenv(\"DEBUG_CAPACITY\", \"0\") == \"1\"\nDEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "DEBUG_CAPACITY_LIMIT",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "DEBUG_CAPACITY_LIMIT = int(os.getenv(\"DEBUG_CAPACITY_LIMIT\", \"30\"))\n# ──────────────────────────────────────────────────────────────────────────────\n# Supabase headers\n# ──────────────────────────────────────────────────────────────────────────────\ndef supabase_headers(json_pref: bool = True, upsert: bool = False) -> Dict[str, str]:\n    h = {\"apikey\": SUPABASE_KEY, \"Authorization\": f\"Bearer {SUPABASE_KEY}\"}\n    if json_pref:\n        h[\"Content-Type\"] = \"application/json\"\n        h[\"Accept\"] = \"application/json\"\n    if upsert:",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -532,16 +559,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "PRICE_SELECTORS = [\n    \"[data-testid='price-and-discounted-price']\",\n    \"[data-testid='price-and-discounted-price--no-discount']\",\n    \"[data-testid='recommended-price']\",\n    \"[data-testid='price-and-discounted-price--pay-now']\",\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \".prco-inline-price\",\n]\nROOM_NAME_SELECTORS = [",
-        "detail": "scraper_core",
-        "documentation": {}
-    },
-    {
-        "label": "ROOM_NAME_SELECTORS",
-        "kind": 5,
-        "importPath": "scraper_core",
-        "description": "scraper_core",
-        "peekOfCode": "ROOM_NAME_SELECTORS = [\n    \"[data-testid='room-name']\",\n    \".hprt-roomtype-icon-link\",\n    \".hprt-roomtype-name\",\n    \"h3\",\n    \"h2\",\n]\ndef aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bool]] = None):\n    def cancelled() -> bool:\n        return bool(should_cancel and should_cancel())",
+        "peekOfCode": "PRICE_SELECTORS = [\n    \"[data-testid='price-and-discounted-price']\",\n    \"[data-testid='price-and-discounted-price--no-discount']\",\n    \"[data-testid='recommended-price']\",\n    \"[data-testid='price-and-discounted-price--pay-now']\",\n    \".prco-valign-middle-helper\",\n    \".bui-price-display__value\",\n    \".prco-inline-price\",\n]\ndef aggressively_expand_and_scroll(page, should_cancel: Optional[Callable[[], bool]] = None):",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -550,7 +568,16 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "_MAX_PERSONS_RE = re.compile(r\"max persons:\\s*(\\d+)\", re.IGNORECASE)\n_ONLY_FOR_GUEST_RE = re.compile(r\"only for\\s+(\\d+)\\s+guest\", re.IGNORECASE)\n_SLEEPS_RE = re.compile(r\"sleeps:\\s*(\\d+)\\s*(?:-|to)?\\s*(\\d+)?\\s*guests?\", re.IGNORECASE)\ndef _extract_max_persons_from_text(text: str) -> Optional[int]:\n    if not text:\n        return None\n    m = _MAX_PERSONS_RE.search(text)\n    if not m:\n        return None\n    try:",
+        "peekOfCode": "_MAX_PERSONS_RE = re.compile(r\"max persons:\\s*(\\d+)\", re.IGNORECASE)\n# \"Only for X guest\" (EN) + common variants (SL/DE/IT/FR) + tolerant endings\n_ONLY_FOR_RE = re.compile(\n    r\"(?:only\\s+for|samo\\s+za|nur\\s+f(?:u|ü)r|solo\\s+per|seulement\\s+pour)\\s+(\\d+)\\s*(?:guest|guests|gosta|gostov|osebo|osebe|person|personen|persona|personnes)?\",\n    re.IGNORECASE,\n)\n# Backwards-compat alias (older versions referenced _ONLY_FOR_GUEST_RE)\n_ONLY_FOR_GUEST_RE = _ONLY_FOR_RE\n# \"Sleeps: 1 - 2 guests\" / \"Sleeps 1 - 2\"\n_SLEEPS_RE = re.compile(r\"\\bsleeps\\s*:?\\s*(\\d+)\\s*(?:[-–—]|to)\\s*(\\d+)\\s*(?:guests?|people|persons?)\\b|\\bsleeps\\s*:?\\s*(\\d+)\\s*(?:guests?|people|persons?)\\b\", re.IGNORECASE)",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "_ONLY_FOR_RE",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "_ONLY_FOR_RE = re.compile(\n    r\"(?:only\\s+for|samo\\s+za|nur\\s+f(?:u|ü)r|solo\\s+per|seulement\\s+pour)\\s+(\\d+)\\s*(?:guest|guests|gosta|gostov|osebo|osebe|person|personen|persona|personnes)?\",\n    re.IGNORECASE,\n)\n# Backwards-compat alias (older versions referenced _ONLY_FOR_GUEST_RE)\n_ONLY_FOR_GUEST_RE = _ONLY_FOR_RE\n# \"Sleeps: 1 - 2 guests\" / \"Sleeps 1 - 2\"\n_SLEEPS_RE = re.compile(r\"\\bsleeps\\s*:?\\s*(\\d+)\\s*(?:[-–—]|to)\\s*(\\d+)\\s*(?:guests?|people|persons?)\\b|\\bsleeps\\s*:?\\s*(\\d+)\\s*(?:guests?|people|persons?)\\b\", re.IGNORECASE)\n# Also catches \"Sleeps 1 - 2 guests\" without colon\n_SLEEPS_RE2 = re.compile(r\"\\bspi\\s*:?\\s*(\\d+)\\s*(?:[-–—]|do)\\s*(\\d+)\\s*(?:gost|oseb)\\b|\\bspi\\s*:?\\s*(\\d+)\\s*(?:gost|oseb)\\b\", re.IGNORECASE)",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -559,7 +586,7 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "_ONLY_FOR_GUEST_RE = re.compile(r\"only for\\s+(\\d+)\\s+guest\", re.IGNORECASE)\n_SLEEPS_RE = re.compile(r\"sleeps:\\s*(\\d+)\\s*(?:-|to)?\\s*(\\d+)?\\s*guests?\", re.IGNORECASE)\ndef _extract_max_persons_from_text(text: str) -> Optional[int]:\n    if not text:\n        return None\n    m = _MAX_PERSONS_RE.search(text)\n    if not m:\n        return None\n    try:\n        return int(m.group(1))",
+        "peekOfCode": "_ONLY_FOR_GUEST_RE = _ONLY_FOR_RE\n# \"Sleeps: 1 - 2 guests\" / \"Sleeps 1 - 2\"\n_SLEEPS_RE = re.compile(r\"\\bsleeps\\s*:?\\s*(\\d+)\\s*(?:[-–—]|to)\\s*(\\d+)\\s*(?:guests?|people|persons?)\\b|\\bsleeps\\s*:?\\s*(\\d+)\\s*(?:guests?|people|persons?)\\b\", re.IGNORECASE)\n# Also catches \"Sleeps 1 - 2 guests\" without colon\n_SLEEPS_RE2 = re.compile(r\"\\bspi\\s*:?\\s*(\\d+)\\s*(?:[-–—]|do)\\s*(\\d+)\\s*(?:gost|oseb)\\b|\\bspi\\s*:?\\s*(\\d+)\\s*(?:gost|oseb)\\b\", re.IGNORECASE)\ndef _extract_max_persons_from_text(text: str) -> Optional[int]:\n    \"\"\"Return the **maximum** 'Max persons: X' found in the text.\n    Booking tables sometimes include multiple 'Max persons:' snippets in the same\n    row because of rowspans / duplicated hidden blocks. Taking the first match\n    can incorrectly downgrade capacity (e.g. picking 1 when the offer is for 2).",
         "detail": "scraper_core",
         "documentation": {}
     },
@@ -568,7 +595,16 @@
         "kind": 5,
         "importPath": "scraper_core",
         "description": "scraper_core",
-        "peekOfCode": "_SLEEPS_RE = re.compile(r\"sleeps:\\s*(\\d+)\\s*(?:-|to)?\\s*(\\d+)?\\s*guests?\", re.IGNORECASE)\ndef _extract_max_persons_from_text(text: str) -> Optional[int]:\n    if not text:\n        return None\n    m = _MAX_PERSONS_RE.search(text)\n    if not m:\n        return None\n    try:\n        return int(m.group(1))\n    except Exception:",
+        "peekOfCode": "_SLEEPS_RE = re.compile(r\"\\bsleeps\\s*:?\\s*(\\d+)\\s*(?:[-–—]|to)\\s*(\\d+)\\s*(?:guests?|people|persons?)\\b|\\bsleeps\\s*:?\\s*(\\d+)\\s*(?:guests?|people|persons?)\\b\", re.IGNORECASE)\n# Also catches \"Sleeps 1 - 2 guests\" without colon\n_SLEEPS_RE2 = re.compile(r\"\\bspi\\s*:?\\s*(\\d+)\\s*(?:[-–—]|do)\\s*(\\d+)\\s*(?:gost|oseb)\\b|\\bspi\\s*:?\\s*(\\d+)\\s*(?:gost|oseb)\\b\", re.IGNORECASE)\ndef _extract_max_persons_from_text(text: str) -> Optional[int]:\n    \"\"\"Return the **maximum** 'Max persons: X' found in the text.\n    Booking tables sometimes include multiple 'Max persons:' snippets in the same\n    row because of rowspans / duplicated hidden blocks. Taking the first match\n    can incorrectly downgrade capacity (e.g. picking 1 when the offer is for 2).\n    \"\"\"\n    if not text:",
+        "detail": "scraper_core",
+        "documentation": {}
+    },
+    {
+        "label": "_SLEEPS_RE2",
+        "kind": 5,
+        "importPath": "scraper_core",
+        "description": "scraper_core",
+        "peekOfCode": "_SLEEPS_RE2 = re.compile(r\"\\bspi\\s*:?\\s*(\\d+)\\s*(?:[-–—]|do)\\s*(\\d+)\\s*(?:gost|oseb)\\b|\\bspi\\s*:?\\s*(\\d+)\\s*(?:gost|oseb)\\b\", re.IGNORECASE)\ndef _extract_max_persons_from_text(text: str) -> Optional[int]:\n    \"\"\"Return the **maximum** 'Max persons: X' found in the text.\n    Booking tables sometimes include multiple 'Max persons:' snippets in the same\n    row because of rowspans / duplicated hidden blocks. Taking the first match\n    can incorrectly downgrade capacity (e.g. picking 1 when the offer is for 2).\n    \"\"\"\n    if not text:\n        return None\n    nums = []",
         "detail": "scraper_core",
         "documentation": {}
     },
