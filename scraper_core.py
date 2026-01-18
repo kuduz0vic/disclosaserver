@@ -677,7 +677,9 @@ def collect_room_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
             if nm:
                 current_room = nm
                 current_room_row = tr
-                continue
+                # Booking often embeds the *first* priced offer inside the same row
+                # that contains the room name. We still want to parse prices/flags
+                # from this row, so DO NOT `continue` here.
 
             if not current_room or not current_room_row:
                 continue
