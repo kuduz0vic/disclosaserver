@@ -578,6 +578,11 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
     stored_slug = (hotel.get("scrape_slug") or hotel.get("slug") or "").strip().lower()
     base_slug, cc_from_slug = split_scrape_slug(stored_slug)
     try:
+        # If the job was canceled before we even start, don't do any work and
+        # IMPORTANT: do not let the caller treat this as "sold out".
+        if is_canceled(job_id):
+            return {"slug": stored_slug, "checkin": checkin, "rows": [], "canceled": True}
+
         cc = (
             (hotel.get("cc") or "").strip().lower()
             or (cc_from_slug or "")
@@ -594,16 +599,21 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
             checkout,
             should_cancel=lambda: is_canceled(job_id),
         )
+
+        # If the job got canceled while Playwright was running, we may have a
+        # partial/empty parse. Treat this as a canceled step, not sold-out.
+        if is_canceled(job_id):
+            return {"slug": stored_slug, "checkin": checkin, "rows": [], "canceled": True}
         deduped = dedupe_min_per_room_and_occupancy(raw_rows)
         for r in deduped:
             if not r.get("hotel"):
                 r["hotel"] = hotel["name"]
             r["user_id"] = user_id
             r["slug"] = stored_slug
-        return {"slug": stored_slug, "checkin": checkin, "rows": deduped}
+        return {"slug": stored_slug, "checkin": checkin, "rows": deduped, "canceled": False}
     except Exception as e:
         print("⚠️ scrape task error:", e)
-        return {"slug": stored_slug, "checkin": checkin, "rows": []}
+        return {"slug": stored_slug, "checkin": checkin, "rows": [], "canceled": False}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -727,9 +737,11 @@ def process_job(first_row: dict):
             buffer_lock = threading.Lock()
             pending = set(futures)
             last_progress = time.time()
+            canceled_detected = False
 
             while pending:
                 if is_canceled(job_id):
+                    canceled_detected = True
                     break
                 if over_time_budget():
                     set_job_fields(job_id, status="failed", finished_at=now_iso_z(), last_error="time budget exceeded")
@@ -768,8 +780,16 @@ def process_job(first_row: dict):
                     slug = (result.get("slug") or "").lower()
                     checkin = result.get("checkin")
                     rows = result.get("rows") or []
+                    step_canceled = bool(result.get("canceled"))
+
+                    # If the job is canceled, do NOT mutate Supabase state for
+                    # this step (no archive/delete/upsert/soldout markers).
+                    if step_canceled or is_canceled(job_id):
+                        canceled_detected = True
+                        continue
 
                     try:
+
                         if rows:
                             if slug and checkin:
                                 archive_previous_snapshot(user_id, slug, checkin)
@@ -800,7 +820,13 @@ def process_job(first_row: dict):
                             if completed_steps % HEARTBEAT_EVERY_STEPS == 0:
                                 set_heartbeat(job_id)
 
-        if buffer_rows:
+                if canceled_detected:
+                    # Discard any buffered rows that haven't been upserted.
+                    with buffer_lock:
+                        buffer_rows.clear()
+                    break
+
+        if buffer_rows and not is_canceled(job_id):
             try:
                 upsert_room_prices(user_id, job_id, buffer_rows)
             except Exception as e:

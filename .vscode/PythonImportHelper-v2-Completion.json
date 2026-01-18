@@ -982,7 +982,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    stored_slug = (hotel.get(\"scrape_slug\") or hotel.get(\"slug\") or \"\").strip().lower()\n    base_slug, cc_from_slug = split_scrape_slug(stored_slug)\n    try:\n        cc = (\n            (hotel.get(\"cc\") or \"\").strip().lower()\n            or (cc_from_slug or \"\")\n            or (resolve_cc_for_slug(base_slug) if RESOLVE_CC_IF_MISSING else None)\n            or DEFAULT_CC",
+        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    stored_slug = (hotel.get(\"scrape_slug\") or hotel.get(\"slug\") or \"\").strip().lower()\n    base_slug, cc_from_slug = split_scrape_slug(stored_slug)\n    try:\n        # If the job was canceled before we even start, don't do any work and\n        # IMPORTANT: do not let the caller treat this as \"sold out\".\n        if is_canceled(job_id):\n            return {\"slug\": stored_slug, \"checkin\": checkin, \"rows\": [], \"canceled\": True}\n        cc = (",
         "detail": "worker_poll",
         "documentation": {}
     }
