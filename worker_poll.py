@@ -1,7 +1,6 @@
 # worker_poll.py
-# v8 bundle: worker unchanged from last stable "filters+occupancy" version.
-# Only requirement: RAW_ON_CONFLICT must include rate_key for variant storage.
-# v9 patch: respect job.meta.slugs selection (do NOT always scrape all / force own)
+# Option B: property_id isolation in room_prices_raw (worker stamps property_id on every row)
+# Also respects job.meta.slugs selection (no forced own)
 
 import os
 import time
@@ -65,15 +64,13 @@ HISTORY_FUNC = "fn_archive_day_rows"
 SOLDOUT_TABLE = "soldout_markers"
 ALERTS_TABLE = "alert_events"
 
-# IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)
-# We *force* this because if someone accidentally sets RAW_ON_CONFLICT without
-# rate_key, PostgREST will error (no matching unique constraint) OR you'll end
-# up overwriting variants and your filters will "randomly" disappear.
-RAW_ON_CONFLICT = "user_id,slug,checkin,room,occupancy,rate_key"
+# IMPORTANT: after Option B migration, unique should be:
+# (user_id, property_id, slug, checkin, room, occupancy, rate_key)
+RAW_ON_CONFLICT = "user_id,property_id,slug,checkin,room,occupancy,rate_key"
 RAW_INCLUDE_JOB_ID = os.getenv("RAW_INCLUDE_JOB_ID", "0") == "1"
 
 _raw_allowed_default = ",".join([
-    "user_id","slug","checkin","room","occupancy","price","hotel","job_id",
+    "user_id","property_id","slug","checkin","room","occupancy","price","hotel","job_id",
     "breakfast_included","dinner_included","half_board",
     "free_cancellation","nonrefundable","prepay_required","rate_plan",
     "rate_key",
@@ -83,13 +80,13 @@ if not RAW_INCLUDE_JOB_ID and "job_id" in RAW_ALLOWED_KEYS:
     RAW_ALLOWED_KEYS.remove("job_id")
 
 # Force-include rate_key because variant storage depends on it.
-# If Railway env accidentally omits rate_key, you'll silently write '' (default)
-# and variants will overwrite each other.
 RAW_ALLOWED_KEYS.add("rate_key")
+RAW_ALLOWED_KEYS.add("property_id")
 
 if os.getenv("DEBUG_WORKER_CONFIG", "0") == "1":
     print("🧩 RAW_ON_CONFLICT:", RAW_ON_CONFLICT)
     print("🧩 RAW_ALLOWED_KEYS:", ",".join(sorted(RAW_ALLOWED_KEYS)))
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # HTTP helpers (short timeouts + retries)
@@ -171,15 +168,17 @@ def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Fetch hotels (merge by hotel_id; independent of relationship cache)
+# Fetch hotels (property-scoped via user_hotels.property_id)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _get_user_links(user_id: str) -> List[dict]:
+def _get_user_links(user_id: str, property_id: str) -> List[dict]:
+    # ✅ property-scoped links
     r = http_get(
         "/rest/v1/user_hotels",
         {
-            "select": "hotel_id,link_type,inserted_at",
+            "select": "hotel_id,link_type,inserted_at,property_id",
             "user_id": f"eq.{user_id}",
+            "property_id": f"eq.{property_id}",
             "order": "inserted_at.asc",
         },
     )
@@ -188,6 +187,9 @@ def _get_user_links(user_id: str) -> List[dict]:
         return []
 
     hotel_ids = [x.get("hotel_id") for x in links if x.get("hotel_id")]
+    if not hotel_ids:
+        return []
+
     rh = http_get(
         "/rest/v1/hotels",
         {"select": "id,name,url", "id": f"in.({','.join(hotel_ids)})"},
@@ -230,8 +232,8 @@ def _get_user_links(user_id: str) -> List[dict]:
     return out
 
 
-def get_own_hotel(user_id: str):
-    links = _get_user_links(user_id)
+def get_own_hotel(user_id: str, property_id: str):
+    links = _get_user_links(user_id, property_id)
     if not links:
         return None
     for l in links:
@@ -258,8 +260,8 @@ def get_own_hotel(user_id: str):
     }
 
 
-def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:
-    links = _get_user_links(user_id)
+def get_competitor_hotels(user_id: str, property_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:
+    links = _get_user_links(user_id, property_id)
     out: List[Dict[str, Any]] = []
     for l in links:
         if own_hotel_id and l["hotel_id"] == own_hotel_id:
@@ -372,7 +374,8 @@ def reap_stale_jobs():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# archiving + sold-out helpers
+# archiving + sold-out helpers (NOTE: still user_id-only RPC signatures in your DB)
+# TODO later: add property_id to RPC + soldout table for full isolation.
 # ──────────────────────────────────────────────────────────────────────────────
 
 def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
@@ -453,7 +456,7 @@ def clear_soldout_marker(user_id: str, slug: str, checkin: str):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# upsert to RAW
+# upsert to RAW (property_id included)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -477,15 +480,13 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         except Exception:
             out["price"] = None
 
-    # rate_key must be non-null for your unique index.
-    # Also: if it is missing/empty, variants collapse and your meal filters break.
+    # rate_key must be non-null
     if "rate_key" in RAW_ALLOWED_KEYS:
         rk = out.get("rate_key")
         if not isinstance(rk, str):
             rk = ""
         rk = rk.strip()
         if not rk:
-            # Best-effort: derive from flags (even if scraper forgot to set it)
             flags = {
                 "breakfast_included": out.get("breakfast_included"),
                 "dinner_included": out.get("dinner_included"),
@@ -500,7 +501,7 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 rk = ""
         out["rate_key"] = rk or ""
 
-    required_keys = ("user_id", "slug", "checkin", "room", "occupancy")
+    required_keys = ("user_id", "property_id", "slug", "checkin", "room", "occupancy")
     for rk in required_keys:
         if not out.get(rk):
             return None
@@ -511,13 +512,15 @@ def _sanitize_raw_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return out
 
 
-def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
+def upsert_room_prices(user_id: str, property_id: str, job_id: str, rows: List[dict]):
     if not rows:
         return
+
     clean: List[Dict[str, Any]] = []
     for r in rows:
         base = {
             "user_id": user_id,
+            "property_id": property_id,
             "slug": r.get("slug"),
             "hotel": r.get("hotel"),
             "checkin": r.get("checkin"),
@@ -535,16 +538,20 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
         }
         if RAW_INCLUDE_JOB_ID:
             base["job_id"] = job_id
+
         s = _sanitize_raw_row(base)
         if s:
             clean.append(s)
+
     if not clean:
         return
 
+    # Deduplicate within batch: keep cheapest per unique key
     uniq: Dict[tuple, Dict[str, Any]] = {}
     for r in clean:
         key = (
             r["user_id"],
+            r["property_id"],
             r["slug"],
             r["checkin"],
             r["room"],
@@ -574,12 +581,10 @@ def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):
 STEP_LOCK = threading.Lock()
 
 
-def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:
+def _scrape_once(job_id: str, user_id: str, property_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:
     stored_slug = (hotel.get("scrape_slug") or hotel.get("slug") or "").strip().lower()
     base_slug, cc_from_slug = split_scrape_slug(stored_slug)
     try:
-        # If the job was canceled before we even start, don't do any work and
-        # IMPORTANT: do not let the caller treat this as "sold out".
         if is_canceled(job_id):
             return {"slug": stored_slug, "checkin": checkin, "rows": [], "canceled": True}
 
@@ -600,16 +605,15 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
             should_cancel=lambda: is_canceled(job_id),
         )
 
-        # If the job got canceled while Playwright was running, we may have a
-        # partial/empty parse. Treat this as a canceled step, not sold-out.
         if is_canceled(job_id):
             return {"slug": stored_slug, "checkin": checkin, "rows": [], "canceled": True}
+
         deduped = dedupe_min_per_room_and_occupancy(raw_rows)
         for r in deduped:
             if not r.get("hotel"):
                 r["hotel"] = hotel["name"]
             r["user_id"] = user_id
-            r["slug"] = stored_slug
+            r["slug"] = stored_slug  # normalized + cc
         return {"slug": stored_slug, "checkin": checkin, "rows": deduped, "canceled": False}
     except Exception as e:
         print("⚠️ scrape task error:", e)
@@ -621,15 +625,6 @@ def _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str,
 # ──────────────────────────────────────────────────────────────────────────────
 
 def apply_job_slug_filter(job_meta: Dict[str, Any], hotels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """If job.meta.slugs is a non-empty list, return only selected hotels.
-
-    Matching rules:
-      - exact match on scrape_slug (e.g. "marienhof-reichenau__at")
-      - base match (e.g. selecting "marienhof-reichenau" matches any cc)
-
-    IMPORTANT: This function does NOT force-own-hotel. If own isn't selected, it won't be scraped.
-    """
-
     selected = (job_meta or {}).get("slugs")
     if not (isinstance(selected, list) and len(selected) > 0):
         return hotels
@@ -649,11 +644,7 @@ def apply_job_slug_filter(job_meta: Dict[str, Any], hotels: List[Dict[str, Any]]
     def _is_selected(h: Dict[str, Any]) -> bool:
         scrape_slug = _norm(h.get("scrape_slug") or "")
         base = _base(scrape_slug)
-        return (
-            scrape_slug in selected_set
-            or base in selected_set
-            or base in selected_bases
-        )
+        return (scrape_slug in selected_set) or (base in selected_set) or (base in selected_bases)
 
     filtered = [h for h in hotels if _is_selected(h)]
     after = len(filtered)
@@ -674,18 +665,25 @@ def process_job(first_row: dict):
 
     job = claimed
     user_id = job["user_id"]
+    property_id = job.get("property_id")
+
+    if not property_id:
+        print(f"❌ job {job_id} missing property_id")
+        set_job_fields(job_id, status="failed", finished_at=now_iso_z(), last_error="missing property_id")
+        return
+
+    property_id = str(property_id)
     range_days = int(job.get("range_days") or 1)
+
     start_date = dt.date.today()
     job_started = dt.datetime.now(timezone.utc)
 
     def over_time_budget() -> bool:
-        return (
-            dt.datetime.now(timezone.utc) - job_started
-        ).total_seconds() > MAX_JOB_DURATION_SEC
+        return (dt.datetime.now(timezone.utc) - job_started).total_seconds() > MAX_JOB_DURATION_SEC
 
-    own = get_own_hotel(user_id)
+    own = get_own_hotel(user_id, property_id)
     own_id = own["hotel_id"] if own else None
-    competitors = get_competitor_hotels(user_id, own_id)
+    competitors = get_competitor_hotels(user_id, property_id, own_id)
 
     hotels: List[Dict[str, Any]] = []
     if own:
@@ -709,17 +707,15 @@ def process_job(first_row: dict):
             }
         )
 
-    # ✅ NEW: Respect job selection via job.meta.slugs
     hotels = apply_job_slug_filter(job.get("meta") or {}, hotels)
 
     if not hotels:
-        print(f"❌ job {job_id} has no hotels to scrape for user {user_id}")
+        print(f"❌ job {job_id} has no hotels to scrape for user {user_id} (property {property_id})")
         set_job_fields(job_id, status="failed", finished_at=now_iso_z(), last_error="no hotels configured")
         return
 
-    print(
-        f"🚀 process_job {job_id} (user {user_id}) | range_days={range_days} | hotels={len(hotels)}"
-    )
+    print(f"🚀 process_job {job_id} (user {user_id}) | property={property_id} | range_days={range_days} | hotels={len(hotels)}")
+
     total_steps = len(hotels) * range_days
     set_job_fields(job_id, total_steps=(total_steps or None), completed_steps=0)
 
@@ -731,7 +727,7 @@ def process_job(first_row: dict):
                 for d in range(range_days):
                     checkin = (start_date + dt.timedelta(days=d)).strftime("%Y-%m-%d")
                     checkout = (start_date + dt.timedelta(days=d + 1)).strftime("%Y-%m-%d")
-                    futures.append(pool.submit(_scrape_once, job_id, user_id, h, checkin, checkout))
+                    futures.append(pool.submit(_scrape_once, job_id, user_id, property_id, h, checkin, checkout))
 
             buffer_rows: List[dict] = []
             buffer_lock = threading.Lock()
@@ -782,21 +778,19 @@ def process_job(first_row: dict):
                     rows = result.get("rows") or []
                     step_canceled = bool(result.get("canceled"))
 
-                    # If the job is canceled, do NOT mutate Supabase state for
-                    # this step (no archive/delete/upsert/soldout markers).
                     if step_canceled or is_canceled(job_id):
                         canceled_detected = True
                         continue
 
                     try:
-
                         if rows:
                             if slug and checkin:
                                 archive_previous_snapshot(user_id, slug, checkin)
+
                             with buffer_lock:
                                 buffer_rows.extend(rows)
                                 if len(buffer_rows) >= 300:
-                                    upsert_room_prices(user_id, job_id, buffer_rows)
+                                    upsert_room_prices(user_id, property_id, job_id, buffer_rows)
                                     seen_pairs = set()
                                     for rr in buffer_rows:
                                         key = (rr.get("slug"), rr.get("checkin"))
@@ -821,14 +815,13 @@ def process_job(first_row: dict):
                                 set_heartbeat(job_id)
 
                 if canceled_detected:
-                    # Discard any buffered rows that haven't been upserted.
                     with buffer_lock:
                         buffer_rows.clear()
                     break
 
         if buffer_rows and not is_canceled(job_id):
             try:
-                upsert_room_prices(user_id, job_id, buffer_rows)
+                upsert_room_prices(user_id, property_id, job_id, buffer_rows)
             except Exception as e:
                 print("⚠️ final upsert buffer err:", e)
             seen_pairs = set()
