@@ -378,12 +378,17 @@ def reap_stale_jobs():
 # TODO later: add property_id to RPC + soldout table for full isolation.
 # ──────────────────────────────────────────────────────────────────────────────
 
-def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
+def archive_previous_snapshot(user_id: str, property_id: str, slug: str, checkin: str):
     try:
         r = http_post(
             f"/rest/v1/rpc/{HISTORY_FUNC}",
             {},
-            {"p_user_id": user_id, "p_slug": slug, "p_checkin": checkin},
+            {
+                "p_user_id": user_id,
+                "p_property_id": property_id,
+                "p_slug": slug,
+                "p_checkin": checkin,
+            },
             timeout_sec=20,
         )
         try:
@@ -395,12 +400,17 @@ def archive_previous_snapshot(user_id: str, slug: str, checkin: str):
         print("⚠️ archive_previous_snapshot failed:", e, getattr(e.response, "text", "")[:200])
 
 
-def delete_current_snapshot(user_id: str, slug: str, checkin: str):
+def delete_current_snapshot(user_id: str, property_id: str, slug: str, checkin: str):
     try:
         r = http_post(
             "/rest/v1/rpc/fn_delete_day_rows",
             {},
-            {"p_user_id": user_id, "p_slug": slug, "p_checkin": checkin},
+            {
+                "p_user_id": user_id,
+                "p_property_id": property_id,
+                "p_slug": slug,
+                "p_checkin": checkin,
+            },
             timeout_sec=20,
         )
         try:
@@ -412,12 +422,17 @@ def delete_current_snapshot(user_id: str, slug: str, checkin: str):
         print("⚠️ delete_current_snapshot failed:", e, getattr(e.response, "text", "")[:200])
 
 
-def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
+def ensure_soldout_marker(user_id: str, property_id: str, slug: str, checkin: str) -> bool:
     try:
         r = http_post(
             f"/rest/v1/{SOLDOUT_TABLE}",
-            {"on_conflict": "user_id,slug,checkin"},
-            [{"user_id": user_id, "slug": slug.lower(), "checkin": checkin}],
+            {"on_conflict": "user_id,property_id,slug,checkin"},
+            [{
+                "user_id": user_id,
+                "property_id": property_id,
+                "slug": slug.lower(),
+                "checkin": checkin,
+            }],
             upsert=True,
             prefer="resolution=ignore-duplicates,return=representation",
             timeout_sec=20,
@@ -428,10 +443,11 @@ def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:
         return False
 
 
-def insert_soldout_alert(user_id: str, slug: str, checkin: str):
+def insert_soldout_alert(user_id: str, property_id: str, slug: str, checkin: str):
     payload = {
         "type": "AUTO_SOLD_OUT",
         "user_id": user_id,
+        "property_id": property_id,
         "slug": slug.lower(),
         "checkin": checkin,
         "price": None,
@@ -439,20 +455,26 @@ def insert_soldout_alert(user_id: str, slug: str, checkin: str):
     }
     try:
         http_post(f"/rest/v1/{ALERTS_TABLE}", {}, payload, timeout_sec=20)
-        print(f"🔔 ALERT AUTO_SOLD_OUT for {slug} {checkin} (user={user_id})")
+        print(f"🔔 ALERT AUTO_SOLD_OUT for {slug} {checkin} (user={user_id}, property={property_id})")
     except HTTPError:
         pass
 
 
-def clear_soldout_marker(user_id: str, slug: str, checkin: str):
+def clear_soldout_marker(user_id: str, property_id: str, slug: str, checkin: str):
     try:
         http_delete(
             f"/rest/v1/{SOLDOUT_TABLE}",
-            {"user_id": f"eq.{user_id}", "slug": f"eq.{slug.lower()}", "checkin": f"eq.{checkin}"},
+            {
+                "user_id": f"eq.{user_id}",
+                "property_id": f"eq.{property_id}",
+                "slug": f"eq.{slug.lower()}",
+                "checkin": f"eq.{checkin}",
+            },
         )
         print(f"🧽 Cleared sold-out marker for {slug} {checkin}")
     except Exception:
         pass
+
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -613,6 +635,7 @@ def _scrape_once(job_id: str, user_id: str, property_id: str, hotel: Dict[str, A
             if not r.get("hotel"):
                 r["hotel"] = hotel["name"]
             r["user_id"] = user_id
+            r["property_id"] = property_id
             r["slug"] = stored_slug  # normalized + cc
         return {"slug": stored_slug, "checkin": checkin, "rows": deduped, "canceled": False}
     except Exception as e:
@@ -785,7 +808,7 @@ def process_job(first_row: dict):
                     try:
                         if rows:
                             if slug and checkin:
-                                archive_previous_snapshot(user_id, slug, checkin)
+                                archive_previous_snapshot(user_id, property_id, slug, checkin)
 
                             with buffer_lock:
                                 buffer_rows.extend(rows)
@@ -795,15 +818,15 @@ def process_job(first_row: dict):
                                     for rr in buffer_rows:
                                         key = (rr.get("slug"), rr.get("checkin"))
                                         if key not in seen_pairs and rr.get("slug") and rr.get("checkin"):
-                                            clear_soldout_marker(user_id, rr["slug"], rr["checkin"])
+                                            clear_soldout_marker(user_id, property_id, rr["slug"], rr["checkin"])
                                             seen_pairs.add(key)
                                     buffer_rows.clear()
                         else:
                             if slug and checkin:
-                                archive_previous_snapshot(user_id, slug, checkin)
-                                delete_current_snapshot(user_id, slug, checkin)
-                                ensure_soldout_marker(user_id, slug, checkin)
-                                insert_soldout_alert(user_id, slug, checkin)
+                                archive_previous_snapshot(user_id, property_id, slug, checkin)
+                                delete_current_snapshot(user_id, property_id, slug, checkin)
+                                ensure_soldout_marker(user_id, property_id, slug, checkin)
+                                insert_soldout_alert(user_id, property_id, slug, checkin)
                     except Exception as e:
                         print("⚠️ parallel scrape step error:", e)
                         set_job_fields(job_id, last_error=str(e))
@@ -828,7 +851,7 @@ def process_job(first_row: dict):
             for rr in buffer_rows:
                 key = (rr.get("slug"), rr.get("checkin"))
                 if key not in seen_pairs and rr.get("slug") and rr.get("checkin"):
-                    clear_soldout_marker(user_id, rr["slug"], rr["checkin"])
+                    clear_soldout_marker(user_id, property_id, rr["slug"], rr["checkin"])
                     seen_pairs.add(key)
 
         set_heartbeat(job_id)
