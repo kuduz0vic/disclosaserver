@@ -667,7 +667,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    return _req_with_retry(\n        \"DELETE\", path, params=params, headers=supabase_headers(json_pref=False)\n    )\n# ──────────────────────────────────────────────────────────────────────────────\n# Fetch hotels (merge by hotel_id; independent of relationship cache)\n# ──────────────────────────────────────────────────────────────────────────────\ndef _get_user_links(user_id: str) -> List[dict]:\n    r = http_get(\n        \"/rest/v1/user_hotels\",",
+        "peekOfCode": "def http_delete(path: str, params: Dict[str, Any]) -> requests.Response:\n    return _req_with_retry(\n        \"DELETE\", path, params=params, headers=supabase_headers(json_pref=False)\n    )\n# ──────────────────────────────────────────────────────────────────────────────\n# Fetch hotels (property-scoped via user_hotels.property_id)\n# ──────────────────────────────────────────────────────────────────────────────\ndef _get_user_links(user_id: str, property_id: str) -> List[dict]:\n    # ✅ property-scoped links\n    r = http_get(",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -676,7 +676,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def get_own_hotel(user_id: str):\n    links = _get_user_links(user_id)\n    if not links:\n        return None\n    for l in links:\n        if l.get(\"link_type\") == \"own\":\n            slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n            if slug:\n                cc = (l.get(\"booking_cc\") or \"\").lower() or None\n                return {",
+        "peekOfCode": "def get_own_hotel(user_id: str, property_id: str):\n    links = _get_user_links(user_id, property_id)\n    if not links:\n        return None\n    for l in links:\n        if l.get(\"link_type\") == \"own\":\n            slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n            if slug:\n                cc = (l.get(\"booking_cc\") or \"\").lower() or None\n                return {",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -685,7 +685,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def get_competitor_hotels(user_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:\n    links = _get_user_links(user_id)\n    out: List[Dict[str, Any]] = []\n    for l in links:\n        if own_hotel_id and l[\"hotel_id\"] == own_hotel_id:\n            continue\n        if l.get(\"link_type\") != \"competitor\":\n            continue\n        slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n        if not slug:",
+        "peekOfCode": "def get_competitor_hotels(user_id: str, property_id: str, own_hotel_id: Optional[str]) -> List[Dict[str, Any]]:\n    links = _get_user_links(user_id, property_id)\n    out: List[Dict[str, Any]] = []\n    for l in links:\n        if own_hotel_id and l[\"hotel_id\"] == own_hotel_id:\n            continue\n        if l.get(\"link_type\") != \"competitor\":\n            continue\n        slug = _normalize_slug(l.get(\"booking_slug\") or l.get(\"url\") or \"\")\n        if not slug:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -748,7 +748,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def archive_previous_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/{HISTORY_FUNC}\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n            timeout_sec=20,\n        )\n        try:\n            n = int(r.json() or 0)",
+        "peekOfCode": "def archive_previous_snapshot(user_id: str, property_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            f\"/rest/v1/rpc/{HISTORY_FUNC}\",\n            {},\n            {\n                \"p_user_id\": user_id,\n                \"p_property_id\": property_id,\n                \"p_slug\": slug,\n                \"p_checkin\": checkin,",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -757,7 +757,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def delete_current_snapshot(user_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            \"/rest/v1/rpc/fn_delete_day_rows\",\n            {},\n            {\"p_user_id\": user_id, \"p_slug\": slug, \"p_checkin\": checkin},\n            timeout_sec=20,\n        )\n        try:\n            n = int(r.json() or 0)",
+        "peekOfCode": "def delete_current_snapshot(user_id: str, property_id: str, slug: str, checkin: str):\n    try:\n        r = http_post(\n            \"/rest/v1/rpc/fn_delete_day_rows\",\n            {},\n            {\n                \"p_user_id\": user_id,\n                \"p_property_id\": property_id,\n                \"p_slug\": slug,\n                \"p_checkin\": checkin,",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -766,7 +766,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def ensure_soldout_marker(user_id: str, slug: str, checkin: str) -> bool:\n    try:\n        r = http_post(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"on_conflict\": \"user_id,slug,checkin\"},\n            [{\"user_id\": user_id, \"slug\": slug.lower(), \"checkin\": checkin}],\n            upsert=True,\n            prefer=\"resolution=ignore-duplicates,return=representation\",\n            timeout_sec=20,\n        )",
+        "peekOfCode": "def ensure_soldout_marker(user_id: str, property_id: str, slug: str, checkin: str) -> bool:\n    try:\n        r = http_post(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"on_conflict\": \"user_id,property_id,slug,checkin\"},\n            [{\n                \"user_id\": user_id,\n                \"property_id\": property_id,\n                \"slug\": slug.lower(),\n                \"checkin\": checkin,",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -775,7 +775,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def insert_soldout_alert(user_id: str, slug: str, checkin: str):\n    payload = {\n        \"type\": \"AUTO_SOLD_OUT\",\n        \"user_id\": user_id,\n        \"slug\": slug.lower(),\n        \"checkin\": checkin,\n        \"price\": None,\n        \"payload\": {\"source\": \"worker_poll\", \"reason\": \"no rooms parsed for any occupancy\"},\n    }\n    try:",
+        "peekOfCode": "def insert_soldout_alert(user_id: str, property_id: str, slug: str, checkin: str):\n    payload = {\n        \"type\": \"AUTO_SOLD_OUT\",\n        \"user_id\": user_id,\n        \"property_id\": property_id,\n        \"slug\": slug.lower(),\n        \"checkin\": checkin,\n        \"price\": None,\n        \"payload\": {\"source\": \"worker_poll\", \"reason\": \"no rooms parsed for any occupancy\"},\n    }",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -784,7 +784,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def clear_soldout_marker(user_id: str, slug: str, checkin: str):\n    try:\n        http_delete(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\"user_id\": f\"eq.{user_id}\", \"slug\": f\"eq.{slug.lower()}\", \"checkin\": f\"eq.{checkin}\"},\n        )\n        print(f\"🧽 Cleared sold-out marker for {slug} {checkin}\")\n    except Exception:\n        pass\n# ──────────────────────────────────────────────────────────────────────────────",
+        "peekOfCode": "def clear_soldout_marker(user_id: str, property_id: str, slug: str, checkin: str):\n    try:\n        http_delete(\n            f\"/rest/v1/{SOLDOUT_TABLE}\",\n            {\n                \"user_id\": f\"eq.{user_id}\",\n                \"property_id\": f\"eq.{property_id}\",\n                \"slug\": f\"eq.{slug.lower()}\",\n                \"checkin\": f\"eq.{checkin}\",\n            },",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -793,7 +793,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def upsert_room_prices(user_id: str, job_id: str, rows: List[dict]):\n    if not rows:\n        return\n    clean: List[Dict[str, Any]] = []\n    for r in rows:\n        base = {\n            \"user_id\": user_id,\n            \"slug\": r.get(\"slug\"),\n            \"hotel\": r.get(\"hotel\"),\n            \"checkin\": r.get(\"checkin\"),",
+        "peekOfCode": "def upsert_room_prices(user_id: str, property_id: str, job_id: str, rows: List[dict]):\n    if not rows:\n        return\n    clean: List[Dict[str, Any]] = []\n    for r in rows:\n        base = {\n            \"user_id\": user_id,\n            \"property_id\": property_id,\n            \"slug\": r.get(\"slug\"),\n            \"hotel\": r.get(\"hotel\"),",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -802,7 +802,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def apply_job_slug_filter(job_meta: Dict[str, Any], hotels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:\n    \"\"\"If job.meta.slugs is a non-empty list, return only selected hotels.\n    Matching rules:\n      - exact match on scrape_slug (e.g. \"marienhof-reichenau__at\")\n      - base match (e.g. selecting \"marienhof-reichenau\" matches any cc)\n    IMPORTANT: This function does NOT force-own-hotel. If own isn't selected, it won't be scraped.\n    \"\"\"\n    selected = (job_meta or {}).get(\"slugs\")\n    if not (isinstance(selected, list) and len(selected) > 0):\n        return hotels",
+        "peekOfCode": "def apply_job_slug_filter(job_meta: Dict[str, Any], hotels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:\n    selected = (job_meta or {}).get(\"slugs\")\n    if not (isinstance(selected, list) and len(selected) > 0):\n        return hotels\n    def _norm(s: str) -> str:\n        return (s or \"\").strip().lower()\n    def _base(s: str) -> str:\n        s = _norm(s)\n        return s.split(\"__\", 1)[0] if \"__\" in s else s\n    selected_set = {_norm(x) for x in selected if isinstance(x, str) and _norm(x)}",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -811,7 +811,7 @@
         "kind": 2,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "def process_job(first_row: dict):\n    job_id = first_row[\"id\"]\n    claimed = claim_job(job_id)\n    if not claimed:\n        print(f\"↩️ Job {job_id} already claimed. Skip.\")\n        return\n    job = claimed\n    user_id = job[\"user_id\"]\n    range_days = int(job.get(\"range_days\") or 1)\n    start_date = dt.date.today()",
+        "peekOfCode": "def process_job(first_row: dict):\n    job_id = first_row[\"id\"]\n    claimed = claim_job(job_id)\n    if not claimed:\n        print(f\"↩️ Job {job_id} already claimed. Skip.\")\n        return\n    job = claimed\n    user_id = job[\"user_id\"]\n    property_id = job.get(\"property_id\")\n    if not property_id:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -865,7 +865,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "NO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)",
+        "peekOfCode": "NO_PROGRESS_KILL_SEC = int(os.getenv(\"NO_PROGRESS_KILL_SEC\", \"1800\"))\nHTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: after Option B migration, unique should be:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -874,7 +874,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "HTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)\n# We *force* this because if someone accidentally sets RAW_ON_CONFLICT without",
+        "peekOfCode": "HTTP_TIMEOUT_SEC = float(os.getenv(\"HTTP_TIMEOUT_SEC\", \"20\"))\nHTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: after Option B migration, unique should be:\n# (user_id, property_id, slug, checkin, room, occupancy, rate_key)",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -883,7 +883,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "HTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)\n# We *force* this because if someone accidentally sets RAW_ON_CONFLICT without\n# rate_key, PostgREST will error (no matching unique constraint) OR you'll end",
+        "peekOfCode": "HTTP_RETRIES = int(os.getenv(\"HTTP_RETRIES\", \"2\"))\nRETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: after Option B migration, unique should be:\n# (user_id, property_id, slug, checkin, room, occupancy, rate_key)\nRAW_ON_CONFLICT = \"user_id,property_id,slug,checkin,room,occupancy,rate_key\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -892,7 +892,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)\n# We *force* this because if someone accidentally sets RAW_ON_CONFLICT without\n# rate_key, PostgREST will error (no matching unique constraint) OR you'll end\n# up overwriting variants and your filters will \"randomly\" disappear.",
+        "peekOfCode": "RETRY_BASE_SLEEP = float(os.getenv(\"RETRY_BASE_SLEEP\", \"0.6\"))\nJOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: after Option B migration, unique should be:\n# (user_id, property_id, slug, checkin, room, occupancy, rate_key)\nRAW_ON_CONFLICT = \"user_id,property_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -901,7 +901,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)\n# We *force* this because if someone accidentally sets RAW_ON_CONFLICT without\n# rate_key, PostgREST will error (no matching unique constraint) OR you'll end\n# up overwriting variants and your filters will \"randomly\" disappear.\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"",
+        "peekOfCode": "JOBS_TABLE = \"scrape_jobs\"\nRAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: after Option B migration, unique should be:\n# (user_id, property_id, slug, checkin, room, occupancy, rate_key)\nRAW_ON_CONFLICT = \"user_id,property_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -910,7 +910,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)\n# We *force* this because if someone accidentally sets RAW_ON_CONFLICT without\n# rate_key, PostgREST will error (no matching unique constraint) OR you'll end\n# up overwriting variants and your filters will \"randomly\" disappear.\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"",
+        "peekOfCode": "RAW_TABLE = \"room_prices_raw\"\nHISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: after Option B migration, unique should be:\n# (user_id, property_id, slug, checkin, room, occupancy, rate_key)\nRAW_ON_CONFLICT = \"user_id,property_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"property_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -919,7 +919,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "HISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)\n# We *force* this because if someone accidentally sets RAW_ON_CONFLICT without\n# rate_key, PostgREST will error (no matching unique constraint) OR you'll end\n# up overwriting variants and your filters will \"randomly\" disappear.\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([",
+        "peekOfCode": "HISTORY_FUNC = \"fn_archive_day_rows\"\nSOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: after Option B migration, unique should be:\n# (user_id, property_id, slug, checkin, room, occupancy, rate_key)\nRAW_ON_CONFLICT = \"user_id,property_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"property_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -928,7 +928,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "SOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)\n# We *force* this because if someone accidentally sets RAW_ON_CONFLICT without\n# rate_key, PostgREST will error (no matching unique constraint) OR you'll end\n# up overwriting variants and your filters will \"randomly\" disappear.\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",",
+        "peekOfCode": "SOLDOUT_TABLE = \"soldout_markers\"\nALERTS_TABLE = \"alert_events\"\n# IMPORTANT: after Option B migration, unique should be:\n# (user_id, property_id, slug, checkin, room, occupancy, rate_key)\nRAW_ON_CONFLICT = \"user_id,property_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"property_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -937,7 +937,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "ALERTS_TABLE = \"alert_events\"\n# IMPORTANT: your DB unique is (user_id, slug, checkin, room, occupancy, rate_key)\n# We *force* this because if someone accidentally sets RAW_ON_CONFLICT without\n# rate_key, PostgREST will error (no matching unique constraint) OR you'll end\n# up overwriting variants and your filters will \"randomly\" disappear.\nRAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",",
+        "peekOfCode": "ALERTS_TABLE = \"alert_events\"\n# IMPORTANT: after Option B migration, unique should be:\n# (user_id, property_id, slug, checkin, room, occupancy, rate_key)\nRAW_ON_CONFLICT = \"user_id,property_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"property_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -946,7 +946,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_ON_CONFLICT = \"user_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:",
+        "peekOfCode": "RAW_ON_CONFLICT = \"user_id,property_id,slug,checkin,room,occupancy,rate_key\"\nRAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"property_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -955,7 +955,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")",
+        "peekOfCode": "RAW_INCLUDE_JOB_ID = os.getenv(\"RAW_INCLUDE_JOB_ID\", \"0\") == \"1\"\n_raw_allowed_default = \",\".join([\n    \"user_id\",\"property_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -964,7 +964,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "_raw_allowed_default = \",\".join([\n    \"user_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")\n# Force-include rate_key because variant storage depends on it.",
+        "peekOfCode": "_raw_allowed_default = \",\".join([\n    \"user_id\",\"property_id\",\"slug\",\"checkin\",\"room\",\"occupancy\",\"price\",\"hotel\",\"job_id\",\n    \"breakfast_included\",\"dinner_included\",\"half_board\",\n    \"free_cancellation\",\"nonrefundable\",\"prepay_required\",\"rate_plan\",\n    \"rate_key\",\n])\nRAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")\n# Force-include rate_key because variant storage depends on it.",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -973,7 +973,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "RAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")\n# Force-include rate_key because variant storage depends on it.\n# If Railway env accidentally omits rate_key, you'll silently write '' (default)\n# and variants will overwrite each other.\nRAW_ALLOWED_KEYS.add(\"rate_key\")\nif os.getenv(\"DEBUG_WORKER_CONFIG\", \"0\") == \"1\":\n    print(\"🧩 RAW_ON_CONFLICT:\", RAW_ON_CONFLICT)\n    print(\"🧩 RAW_ALLOWED_KEYS:\", \",\".join(sorted(RAW_ALLOWED_KEYS)))",
+        "peekOfCode": "RAW_ALLOWED_KEYS = {k.strip() for k in os.getenv(\"RAW_ALLOWED_KEYS\", _raw_allowed_default).split(\",\") if k.strip()}\nif not RAW_INCLUDE_JOB_ID and \"job_id\" in RAW_ALLOWED_KEYS:\n    RAW_ALLOWED_KEYS.remove(\"job_id\")\n# Force-include rate_key because variant storage depends on it.\nRAW_ALLOWED_KEYS.add(\"rate_key\")\nRAW_ALLOWED_KEYS.add(\"property_id\")\nif os.getenv(\"DEBUG_WORKER_CONFIG\", \"0\") == \"1\":\n    print(\"🧩 RAW_ON_CONFLICT:\", RAW_ON_CONFLICT)\n    print(\"🧩 RAW_ALLOWED_KEYS:\", \",\".join(sorted(RAW_ALLOWED_KEYS)))\n# ──────────────────────────────────────────────────────────────────────────────",
         "detail": "worker_poll",
         "documentation": {}
     },
@@ -982,7 +982,7 @@
         "kind": 5,
         "importPath": "worker_poll",
         "description": "worker_poll",
-        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(job_id: str, user_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    stored_slug = (hotel.get(\"scrape_slug\") or hotel.get(\"slug\") or \"\").strip().lower()\n    base_slug, cc_from_slug = split_scrape_slug(stored_slug)\n    try:\n        # If the job was canceled before we even start, don't do any work and\n        # IMPORTANT: do not let the caller treat this as \"sold out\".\n        if is_canceled(job_id):\n            return {\"slug\": stored_slug, \"checkin\": checkin, \"rows\": [], \"canceled\": True}\n        cc = (",
+        "peekOfCode": "STEP_LOCK = threading.Lock()\ndef _scrape_once(job_id: str, user_id: str, property_id: str, hotel: Dict[str, Any], checkin: str, checkout: str) -> Dict[str, Any]:\n    stored_slug = (hotel.get(\"scrape_slug\") or hotel.get(\"slug\") or \"\").strip().lower()\n    base_slug, cc_from_slug = split_scrape_slug(stored_slug)\n    try:\n        if is_canceled(job_id):\n            return {\"slug\": stored_slug, \"checkin\": checkin, \"rows\": [], \"canceled\": True}\n        cc = (\n            (hotel.get(\"cc\") or \"\").strip().lower()\n            or (cc_from_slug or \"\")",
         "detail": "worker_poll",
         "documentation": {}
     }
