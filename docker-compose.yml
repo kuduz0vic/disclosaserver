@@ -1,0 +1,18 @@
+services:
+  worker:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    # The worker touches /tmp/worker-alive every loop (and exits itself if it stalls
+    # for LIVENESS_MAX_AGE_SEC, so the restart policy brings it back). This reports it.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time() - os.path.getmtime('/tmp/worker-alive') < 180 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

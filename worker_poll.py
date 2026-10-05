@@ -21,7 +21,7 @@ from scraper_core import (
     resolve_cc_for_slug,
     RESOLVE_CC_IF_MISSING,
     DEFAULT_CC,
-    scrape_hotel_for_dates,
+    scrape_hotel_for_dates_with_status,
     dedupe_min_per_room_and_occupancy,
     build_rate_key,
 )
@@ -53,6 +53,10 @@ MAX_JOB_DURATION_SEC = int(os.getenv("MAX_JOB_DURATION_SEC", "5400"))
 HEARTBEAT_EVERY_STEPS = int(os.getenv("HEARTBEAT_EVERY_STEPS", "8"))
 STALE_JOB_MINUTES = int(os.getenv("STALE_JOB_MINUTES", "90"))
 NO_PROGRESS_KILL_SEC = int(os.getenv("NO_PROGRESS_KILL_SEC", "1800"))
+# Liveness: the main thread touches this file every loop; the Docker healthcheck reads
+# it, and the watchdog thread exits the process (-> restart policy) when it goes stale.
+LIVENESS_FILE = os.getenv("LIVENESS_FILE", "/tmp/worker-alive")
+LIVENESS_MAX_AGE_SEC = int(os.getenv("LIVENESS_MAX_AGE_SEC", "900"))
 
 HTTP_TIMEOUT_SEC = float(os.getenv("HTTP_TIMEOUT_SEC", "20"))
 HTTP_RETRIES = int(os.getenv("HTTP_RETRIES", "2"))
@@ -355,8 +359,11 @@ def is_canceled(job_id: str) -> bool:
             return True
         status = (rows[0].get("status") or "").lower()
         return status in ("canceled", "failed")
-    except HTTPError:
-        return True
+    except Exception as e:
+        # A transient error while *checking* must not cancel the job (it used to on
+        # HTTPError) nor bubble up into a scrape step (non-HTTP errors used to).
+        print("⚠️ is_canceled check failed:", type(e).__name__, e)
+        return False
 
 
 def reap_stale_jobs():
@@ -618,7 +625,7 @@ def _scrape_once(job_id: str, user_id: str, property_id: str, hotel: Dict[str, A
         )
         stored_slug = to_scrape_slug(base_slug, cc)
 
-        raw_rows = scrape_hotel_for_dates(
+        raw_rows, status = scrape_hotel_for_dates_with_status(
             hotel["name"],
             base_slug,
             cc,
@@ -630,6 +637,33 @@ def _scrape_once(job_id: str, user_id: str, property_id: str, hotel: Dict[str, A
         if is_canceled(job_id):
             return {"slug": stored_slug, "checkin": checkin, "rows": [], "canceled": True}
 
+        # Only an empty result from pages that all loaded fine means "sold out".
+        # If any page failed (timeout / HTTP 4xx-5xx / parse error) and nothing was
+        # parsed, this is a scrape failure: keep existing prices, raise no alert.
+        attempted = int(status.get("attempted") or 0)
+        loaded = int(status.get("loaded") or 0)
+        explicit = int(status.get("no_availability") or 0)
+        # Sold out also needs positive evidence: Booking.com's "no availability" message.
+        # All pages loaded but nothing parsed and no such message = likely a layout change.
+        if not raw_rows and attempted > 0 and loaded == attempted and explicit == 0:
+            return {
+                "slug": stored_slug,
+                "checkin": checkin,
+                "rows": [],
+                "canceled": False,
+                "failed": True,
+                "error": "no rooms parsed and no 'no availability' message (page layout change?)",
+            }
+        if not raw_rows and (attempted == 0 or loaded < attempted):
+            return {
+                "slug": stored_slug,
+                "checkin": checkin,
+                "rows": [],
+                "canceled": False,
+                "failed": True,
+                "error": "; ".join(status.get("errors") or []) or "no pages loaded",
+            }
+
         deduped = dedupe_min_per_room_and_occupancy(raw_rows)
         for r in deduped:
             if not r.get("hotel"):
@@ -640,7 +674,15 @@ def _scrape_once(job_id: str, user_id: str, property_id: str, hotel: Dict[str, A
         return {"slug": stored_slug, "checkin": checkin, "rows": deduped, "canceled": False}
     except Exception as e:
         print("⚠️ scrape task error:", e)
-        return {"slug": stored_slug, "checkin": checkin, "rows": [], "canceled": False}
+        # An exception is a failure, never a sold-out signal.
+        return {
+            "slug": stored_slug,
+            "checkin": checkin,
+            "rows": [],
+            "canceled": False,
+            "failed": True,
+            "error": f"{type(e).__name__}: {e}",
+        }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -743,6 +785,17 @@ def process_job(first_row: dict):
     set_job_fields(job_id, total_steps=(total_steps or None), completed_steps=0)
 
     completed_steps = 0
+    steps_ok = 0
+    steps_soldout = 0
+    steps_failed = 0
+    first_errors: List[str] = []
+
+    def note_failure(msg: str):
+        nonlocal steps_failed
+        steps_failed += 1
+        if len(first_errors) < 3:
+            first_errors.append(msg[:200])
+
     try:
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = []
@@ -752,13 +805,12 @@ def process_job(first_row: dict):
                     checkout = (start_date + dt.timedelta(days=d + 1)).strftime("%Y-%m-%d")
                     futures.append(pool.submit(_scrape_once, job_id, user_id, property_id, h, checkin, checkout))
 
-            buffer_rows: List[dict] = []
-            buffer_lock = threading.Lock()
             pending = set(futures)
             last_progress = time.time()
             canceled_detected = False
 
             while pending:
+                touch_liveness()
                 if is_canceled(job_id):
                     canceled_detected = True
                     break
@@ -789,6 +841,7 @@ def process_job(first_row: dict):
                         result = fut.result()
                     except Exception as e:
                         print("⏳ step error:", type(e).__name__, e)
+                        note_failure(f"{type(e).__name__}: {e}")
                         with STEP_LOCK:
                             completed_steps += 1
                             set_job_fields(job_id, completed_steps=completed_steps, last_error="step error")
@@ -806,29 +859,30 @@ def process_job(first_row: dict):
                         continue
 
                     try:
-                        if rows:
+                        if result.get("failed"):
+                            # Scrape failure (timeout / blocked / 404 / exception):
+                            # keep the last known prices and do NOT raise a sold-out alert.
+                            note_failure(f"{slug} {checkin}: {result.get('error') or 'failed'}")
+                        elif rows:
                             if slug and checkin:
                                 archive_previous_snapshot(user_id, property_id, slug, checkin)
-
-                            with buffer_lock:
-                                buffer_rows.extend(rows)
-                                if len(buffer_rows) >= 300:
-                                    upsert_room_prices(user_id, property_id, job_id, buffer_rows)
-                                    seen_pairs = set()
-                                    for rr in buffer_rows:
-                                        key = (rr.get("slug"), rr.get("checkin"))
-                                        if key not in seen_pairs and rr.get("slug") and rr.get("checkin"):
-                                            clear_soldout_marker(user_id, property_id, rr["slug"], rr["checkin"])
-                                            seen_pairs.add(key)
-                                    buffer_rows.clear()
+                            # Upsert right away: archiving may move the previous rows out, so
+                            # buffering here risked losing the day's data if the job crashed.
+                            upsert_room_prices(user_id, property_id, job_id, rows)
+                            if slug and checkin:
+                                clear_soldout_marker(user_id, property_id, slug, checkin)
+                            steps_ok += 1
                         else:
                             if slug and checkin:
                                 archive_previous_snapshot(user_id, property_id, slug, checkin)
                                 delete_current_snapshot(user_id, property_id, slug, checkin)
-                                ensure_soldout_marker(user_id, property_id, slug, checkin)
-                                insert_soldout_alert(user_id, property_id, slug, checkin)
+                                # alert only when the day *becomes* sold out, not on every scrape
+                                if ensure_soldout_marker(user_id, property_id, slug, checkin):
+                                    insert_soldout_alert(user_id, property_id, slug, checkin)
+                            steps_soldout += 1
                     except Exception as e:
                         print("⚠️ parallel scrape step error:", e)
+                        note_failure(f"{slug} {checkin}: {e}")
                         set_job_fields(job_id, last_error=str(e))
                     finally:
                         with STEP_LOCK:
@@ -838,27 +892,26 @@ def process_job(first_row: dict):
                                 set_heartbeat(job_id)
 
                 if canceled_detected:
-                    with buffer_lock:
-                        buffer_rows.clear()
                     break
 
-        if buffer_rows and not is_canceled(job_id):
-            try:
-                upsert_room_prices(user_id, property_id, job_id, buffer_rows)
-            except Exception as e:
-                print("⚠️ final upsert buffer err:", e)
-            seen_pairs = set()
-            for rr in buffer_rows:
-                key = (rr.get("slug"), rr.get("checkin"))
-                if key not in seen_pairs and rr.get("slug") and rr.get("checkin"):
-                    clear_soldout_marker(user_id, property_id, rr["slug"], rr["checkin"])
-                    seen_pairs.add(key)
-
         set_heartbeat(job_id)
+        summary = f"ok={steps_ok} sold_out={steps_soldout} failed={steps_failed}"
+        print(f"📊 job {job_id}: {summary}")
         if is_canceled(job_id):
             set_job_fields(job_id, status="canceled", finished_at=now_iso_z())
+        elif steps_failed > 0 and steps_ok == 0 and steps_soldout == 0:
+            # Nothing usable came back (e.g. Booking blocked us) — don't report success.
+            set_job_fields(
+                job_id,
+                status="failed",
+                finished_at=now_iso_z(),
+                last_error=f"all scrape steps failed ({summary}): " + " | ".join(first_errors),
+            )
         else:
-            set_job_fields(job_id, status="done", finished_at=now_iso_z())
+            patch: Dict[str, Any] = {"status": "done", "finished_at": now_iso_z()}
+            if steps_failed > 0:
+                patch["last_error"] = f"partial: {summary}: " + " | ".join(first_errors)
+            set_job_fields(job_id, **patch)
 
     except HTTPError as http_err:
         print("💥 HTTP error in process_job:", http_err, getattr(http_err.response, "text", "")[:400])
@@ -874,9 +927,48 @@ def process_job(first_row: dict):
             pass
 
 
+def touch_liveness():
+    try:
+        with open(LIVENESS_FILE, "w") as f:
+            f.write(str(int(time.time())))
+    except OSError as e:
+        print("⚠️ liveness touch failed:", e)
+
+
+def liveness_age_sec(now: Optional[float] = None) -> float:
+    try:
+        return (now if now is not None else time.time()) - os.path.getmtime(LIVENESS_FILE)
+    except OSError:
+        return float("inf")
+
+
+def _liveness_watchdog():
+    # The main thread can block outside the no-progress check (e.g. the thread pool
+    # waiting on a hung Playwright step after a cancel). The process stays alive, so the
+    # restart policy never fires; exiting here hands it back to Docker.
+    while True:
+        time.sleep(30)
+        try:
+            check_liveness()
+        except Exception as e:  # the watchdog itself must never die
+            print("⚠️ liveness watchdog error:", type(e).__name__, e)
+
+
+def check_liveness():
+    age = liveness_age_sec()
+    if age > LIVENESS_MAX_AGE_SEC:
+        try:
+            print(f"🧨 main loop stalled for {age:.0f}s -> exiting so the container restarts")
+        finally:
+            os._exit(3)
+
+
 def main():
     print("⏳ Worker online. Polling scrape_jobs...")
+    touch_liveness()
+    threading.Thread(target=_liveness_watchdog, name="liveness-watchdog", daemon=True).start()
     while True:
+        touch_liveness()
         try:
             reap_stale_jobs()
             job = fetch_next_pending_job()

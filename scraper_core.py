@@ -91,10 +91,11 @@ def _normalize_slug(v: str) -> str:
             if len(parts) >= 3 and parts[0].lower() == "hotel":
                 slug = parts[2]
                 slug = slug.split("?")[0]
-                return re.sub(r"\.([a-z]{2}(?:-[a-z]{2})?)?\.html?$", "", slug, flags=re.I).replace(" ", "")
+                return re.sub(r"(?:\.[a-z]{2}(?:-[a-z]{2})?)?\.html?$", "", slug, flags=re.I).replace(" ", "")
         except Exception:
             pass
-    t = re.sub(r"\.([a-z]{2}(?:-[a-z]{2})?)?\.html?$", "", t, flags=re.I)
+    # language segment is optional: "my-hotel.html" and "my-hotel.sl.html" both -> "my-hotel"
+    t = re.sub(r"(?:\.[a-z]{2}(?:-[a-z]{2})?)?\.html?$", "", t, flags=re.I)
     return t.replace(" ", "")
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -845,6 +846,20 @@ def collect_card_rows_for_adults(page, adults: int) -> List[Dict[str, Any]]:
         })
     return out
 
+NO_AVAILABILITY_RE = re.compile(
+    r"we have no availability|no availability here|there are no rooms available|"
+    r"sold out on our site|nema slobodnih|ni prostih|keine verfügbarkeit|nessuna disponibilità",
+    re.I,
+)
+
+
+def page_says_no_availability(page) -> bool:
+    """Booking.com's explicit 'no availability for your dates' message (positive sold-out evidence)."""
+    try:
+        return bool(NO_AVAILABILITY_RE.search(page.inner_text("body", timeout=3000) or ""))
+    except Exception:
+        return False
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Public scrape API (used by worker)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -856,7 +871,29 @@ def scrape_hotel_for_dates(
     checkout: str,
     should_cancel: Optional[Callable[[], bool]] = None,
 ) -> List[dict]:
+    rows, _status = scrape_hotel_for_dates_with_status(
+        name, slug, cc, checkin, checkout, should_cancel=should_cancel
+    )
+    return rows
+
+
+def scrape_hotel_for_dates_with_status(
+    name: str,
+    slug: str,
+    cc: Optional[str],
+    checkin: str,
+    checkout: str,
+    should_cancel: Optional[Callable[[], bool]] = None,
+) -> Tuple[List[dict], Dict[str, Any]]:
+    """
+    Same as scrape_hotel_for_dates, plus a status dict:
+      {"attempted": n, "loaded": n, "errors": [..]}
+    A page counts as "loaded" only if navigation succeeded with HTTP < 400 and parsing
+    didn't raise. Callers must NOT treat "no rows" as sold out unless every attempted
+    page loaded — otherwise timeouts / blocks / 404s look like sold-out days.
+    """
     out: List[dict] = []
+    status: Dict[str, Any] = {"attempted": 0, "loaded": 0, "errors": [], "no_availability": 0}
     booking_slug = _normalize_slug(slug)
     cc_eff = (cc or DEFAULT_CC).lower()
 
@@ -890,11 +927,23 @@ def scrape_hotel_for_dates(
 
             url = build_hotel_url(cc_eff, booking_slug, checkin, checkout, adults, lang="en-gb")
             print(f"🏨 {name} | {checkin}→{checkout} | adults={adults}\n   {url}")
+            status["attempted"] += 1
 
             try:
-                page.goto(url, timeout=PAGE_GOTO_TIMEOUT_MS, wait_until="domcontentloaded")
+                resp = page.goto(url, timeout=PAGE_GOTO_TIMEOUT_MS, wait_until="domcontentloaded")
             except TimeoutError:
                 print("⚠️ Timeout loading hotel page.")
+                status["errors"].append(f"adults={adults}: timeout")
+                continue
+            except Exception as e:
+                print("⚠️ Navigation error:", e)
+                status["errors"].append(f"adults={adults}: navigation error {type(e).__name__}")
+                continue
+
+            if resp is not None and resp.status >= 400:
+                # 404 = wrong slug/cc, 403/429 = blocked / rate-limited — never "sold out"
+                print(f"⚠️ HTTP {resp.status} for hotel page.")
+                status["errors"].append(f"adults={adults}: HTTP {resp.status}")
                 continue
 
             if cancelled():
@@ -913,6 +962,8 @@ def scrape_hotel_for_dates(
                 rows = collect_room_rows_for_adults(page, adults)
                 if not rows:
                     rows = collect_card_rows_for_adults(page, adults)
+                if not rows and page_says_no_availability(page):
+                    status["no_availability"] += 1
 
                 for r in rows:
                     out.append({
@@ -932,8 +983,11 @@ def scrape_hotel_for_dates(
                         "rate_key": r.get("rate_key"),
                     })
 
+                status["loaded"] += 1
+
             except Exception as e:
                 print("⚠️ Page error:", e)
+                status["errors"].append(f"adults={adults}: page error {type(e).__name__}")
                 continue
 
         try:
@@ -945,7 +999,7 @@ def scrape_hotel_for_dates(
         except Exception:
             pass
 
-    return out
+    return out, status
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Post-processing: keep min per (slug, checkin, room, occupancy, rate_key)
