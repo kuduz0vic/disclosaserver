@@ -65,6 +65,7 @@ RETRY_BASE_SLEEP = float(os.getenv("RETRY_BASE_SLEEP", "0.6"))
 JOBS_TABLE = "scrape_jobs"
 RAW_TABLE = "room_prices_raw"
 HISTORY_FUNC = "fn_archive_day_rows"
+REPLACE_FUNC = "fn_replace_day_rows"
 SOLDOUT_TABLE = "soldout_markers"
 ALERTS_TABLE = "alert_events"
 
@@ -603,6 +604,86 @@ def upsert_room_prices(user_id: str, property_id: str, job_id: str, rows: List[d
         print(f"✅ Upserted {len(batch)} rows into room_prices_raw")
 
 
+def conclusive_occupancies(status: Dict[str, Any]) -> List[int]:
+    """Guest counts whose page gave conclusive evidence this check: offers parsed, or Booking.com's
+    explicit "no availability". Only these may have their current offers replaced; failed or
+    inconclusive pages keep the previous offers."""
+    pages = (status or {}).get("pages") or {}
+    out = []
+    for adults, outcome in pages.items():
+        if outcome in ("rows", "no_availability"):
+            try:
+                out.append(int(adults))
+            except (TypeError, ValueError):
+                pass
+    return sorted(set(out))
+
+
+def replace_current_snapshot(user_id: str, property_id: str, slug: str, checkin: str,
+                             occupancies: List[int], rows: List[dict]) -> Dict[str, Any]:
+    """Successful step: archive the hotel-night and replace its current offers for `occupancies`
+    with `rows`, atomically (fn_replace_day_rows). Raises on HTTP errors (the step then counts as
+    failed and the previous prices stay, because the transaction never committed)."""
+    payload_rows: List[Dict[str, Any]] = []
+    for r in rows:
+        s = _sanitize_raw_row({**r, "user_id": user_id, "property_id": property_id})
+        if not s:
+            continue
+        # the function writes slug/checkin/user/property itself; rows can't point elsewhere
+        for k in ("user_id", "property_id", "slug", "checkin"):
+            s.pop(k, None)
+        payload_rows.append(s)
+    r = http_post(
+        f"/rest/v1/rpc/{REPLACE_FUNC}",
+        {},
+        {
+            "p_user_id": user_id,
+            "p_property_id": property_id,
+            "p_slug": slug.lower(),
+            "p_checkin": checkin,
+            "p_occupancies": occupancies,
+            "p_rows": payload_rows,
+        },
+        timeout_sec=30,
+    )
+    try:
+        res = r.json() or {}
+    except Exception:
+        res = {}
+    print(f"✅ Replaced {slug} {checkin} occupancies={occupancies}: {res}")
+    return res
+
+
+def write_step_result(user_id: str, property_id: str, job_id: str, result: Dict[str, Any]) -> str:
+    """Persist one finished step. Returns "failed" | "ok" | "sold_out". Raises on DB errors."""
+    slug = (result.get("slug") or "").lower()
+    checkin = result.get("checkin")
+    rows = result.get("rows") or []
+    if result.get("failed"):
+        # Scrape failure (timeout / blocked / 404 / exception):
+        # keep the last known prices and do NOT raise a sold-out alert.
+        return "failed"
+    if rows:
+        # Replace (not just upsert) the current offers for the guest counts this check saw
+        # conclusively, so rooms/rates that disappeared from Booking.com don't linger as current
+        # prices. Archive + replace is one DB transaction; failed/inconclusive guest counts keep
+        # their rows.
+        if slug and checkin:
+            replace_current_snapshot(user_id, property_id, slug, checkin, result.get("replace_occupancies") or [], rows)
+            clear_soldout_marker(user_id, property_id, slug, checkin)
+        else:
+            upsert_room_prices(user_id, property_id, job_id, rows)
+        return "ok"
+    # explicit sold out (unchanged)
+    if slug and checkin:
+        archive_previous_snapshot(user_id, property_id, slug, checkin)
+        delete_current_snapshot(user_id, property_id, slug, checkin)
+        # alert only when the day *becomes* sold out, not on every scrape
+        if ensure_soldout_marker(user_id, property_id, slug, checkin):
+            insert_soldout_alert(user_id, property_id, slug, checkin)
+    return "sold_out"
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # scrape step
 # ──────────────────────────────────────────────────────────────────────────────
@@ -671,7 +752,13 @@ def _scrape_once(job_id: str, user_id: str, property_id: str, hotel: Dict[str, A
             r["user_id"] = user_id
             r["property_id"] = property_id
             r["slug"] = stored_slug  # normalized + cc
-        return {"slug": stored_slug, "checkin": checkin, "rows": deduped, "canceled": False}
+        return {
+            "slug": stored_slug,
+            "checkin": checkin,
+            "rows": deduped,
+            "canceled": False,
+            "replace_occupancies": conclusive_occupancies(status),
+        }
     except Exception as e:
         print("⚠️ scrape task error:", e)
         # An exception is a failure, never a sold-out signal.
@@ -859,26 +946,12 @@ def process_job(first_row: dict):
                         continue
 
                     try:
-                        if result.get("failed"):
-                            # Scrape failure (timeout / blocked / 404 / exception):
-                            # keep the last known prices and do NOT raise a sold-out alert.
+                        outcome = write_step_result(user_id, property_id, job_id, result)
+                        if outcome == "failed":
                             note_failure(f"{slug} {checkin}: {result.get('error') or 'failed'}")
-                        elif rows:
-                            if slug and checkin:
-                                archive_previous_snapshot(user_id, property_id, slug, checkin)
-                            # Upsert right away: archiving may move the previous rows out, so
-                            # buffering here risked losing the day's data if the job crashed.
-                            upsert_room_prices(user_id, property_id, job_id, rows)
-                            if slug and checkin:
-                                clear_soldout_marker(user_id, property_id, slug, checkin)
+                        elif outcome == "ok":
                             steps_ok += 1
                         else:
-                            if slug and checkin:
-                                archive_previous_snapshot(user_id, property_id, slug, checkin)
-                                delete_current_snapshot(user_id, property_id, slug, checkin)
-                                # alert only when the day *becomes* sold out, not on every scrape
-                                if ensure_soldout_marker(user_id, property_id, slug, checkin):
-                                    insert_soldout_alert(user_id, property_id, slug, checkin)
                             steps_soldout += 1
                     except Exception as e:
                         print("⚠️ parallel scrape step error:", e)

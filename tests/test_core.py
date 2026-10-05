@@ -136,3 +136,87 @@ class Liveness(unittest.TestCase):
         with mock.patch.object(worker.os, "_exit") as ex:
             worker.check_liveness()
             ex.assert_not_called()
+
+
+class ReplaceSnapshot(unittest.TestCase):
+    """A successful check replaces current offers only for guest counts it saw conclusively."""
+
+    hotel = {"name": "H", "slug": "h", "cc": "si", "scrape_slug": "h__si"}
+    row2 = {"hotel": "H", "slug": "h", "checkin": "2026-10-05", "room": "Double",
+            "occupancy": 2, "price": 120.0, "rate_key": "b1"}
+
+    def run_once(self, rows, status):
+        with mock.patch.object(worker, "is_canceled", return_value=False), mock.patch.object(
+            worker, "scrape_hotel_for_dates_with_status", return_value=(rows, status)
+        ):
+            return worker._scrape_once("job", "u", "p", self.hotel, "2026-10-05", "2026-10-06")
+
+    def test_all_pages_with_offers_replace_every_guest_count(self):
+        pages = {1: "rows", 2: "rows", 3: "rows", 4: "rows"}
+        r = self.run_once([self.row2], {"attempted": 4, "loaded": 4, "errors": [], "pages": pages})
+        self.assertEqual(r["replace_occupancies"], [1, 2, 3, 4])
+
+    def test_failed_page_keeps_that_guest_count(self):
+        pages = {1: "rows", 2: "rows", 3: "failed", 4: "rows"}
+        r = self.run_once([self.row2], {"attempted": 4, "loaded": 3, "errors": ["adults=3: timeout"], "pages": pages})
+        self.assertFalse(r.get("failed"))
+        self.assertEqual(r["replace_occupancies"], [1, 2, 4])
+
+    def test_explicit_no_availability_replaces_inconclusive_empty_does_not(self):
+        pages = {1: "rows", 2: "rows", 3: "no_availability", 4: "empty"}
+        r = self.run_once([self.row2], {"attempted": 4, "loaded": 4, "errors": [], "no_availability": 1, "pages": pages})
+        self.assertEqual(r["replace_occupancies"], [1, 2, 3])
+
+    def test_old_status_without_pages_replaces_nothing(self):
+        r = self.run_once([self.row2], {"attempted": 4, "loaded": 4, "errors": []})
+        self.assertEqual(r["replace_occupancies"], [])
+
+    def test_replace_sends_one_scoped_rpc(self):
+        rows = [dict(self.row2, slug="other__xx", checkin="2030-01-01", user_id="u", property_id="p")]
+        with mock.patch.object(worker, "http_post") as post:
+            post.return_value.json.return_value = {"archived": 3, "deleted": 3, "written": 1}
+            worker.replace_current_snapshot("u", "p", "H__SI", "2026-10-05", [1, 2], rows)
+        post.assert_called_once()
+        path, _params, body = post.call_args[0][:3]
+        self.assertEqual(path, "/rest/v1/rpc/fn_replace_day_rows")
+        self.assertEqual((body["p_user_id"], body["p_property_id"], body["p_slug"], body["p_checkin"]), ("u", "p", "h__si", "2026-10-05"))
+        self.assertEqual(body["p_occupancies"], [1, 2])
+        self.assertEqual(len(body["p_rows"]), 1)
+        # rows can't redirect the write to another hotel/night/tenant
+        for k in ("slug", "checkin", "user_id", "property_id"):
+            self.assertNotIn(k, body["p_rows"][0])
+        self.assertEqual(body["p_rows"][0]["room"], "Double")
+        self.assertEqual(body["p_rows"][0]["price"], 120.0)
+
+
+class StepWrites(unittest.TestCase):
+    """What a finished step writes, per outcome (job loop branches)."""
+
+    def _process(self, result):
+        calls = []
+        names = ["replace_current_snapshot", "upsert_room_prices", "archive_previous_snapshot",
+                 "delete_current_snapshot", "ensure_soldout_marker", "insert_soldout_alert", "clear_soldout_marker"]
+        patches = [mock.patch.object(worker, n, side_effect=(lambda *a, _n=n, **k: calls.append(_n) or (True if _n == "ensure_soldout_marker" else None))) for n in names]
+        for p in patches:
+            p.start()
+        try:
+            worker.write_step_result("u", "p", "job", result)
+        finally:
+            for p in patches:
+                p.stop()
+        return calls
+
+    def test_success_replaces_and_clears_marker(self):
+        res = {"slug": "h__si", "checkin": "2026-10-05", "rows": [{"room": "Double"}], "replace_occupancies": [2]}
+        self.assertEqual(self._process(res), ["replace_current_snapshot", "clear_soldout_marker"])
+
+    def test_failure_writes_nothing(self):
+        res = {"slug": "h__si", "checkin": "2026-10-05", "rows": [], "failed": True, "error": "timeout"}
+        self.assertEqual(self._process(res), [])
+
+    def test_sold_out_path_unchanged(self):
+        res = {"slug": "h__si", "checkin": "2026-10-05", "rows": []}
+        self.assertEqual(
+            self._process(res),
+            ["archive_previous_snapshot", "delete_current_snapshot", "ensure_soldout_marker", "insert_soldout_alert"],
+        )

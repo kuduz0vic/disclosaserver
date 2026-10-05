@@ -887,13 +887,16 @@ def scrape_hotel_for_dates_with_status(
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """
     Same as scrape_hotel_for_dates, plus a status dict:
-      {"attempted": n, "loaded": n, "errors": [..]}
+      {"attempted": n, "loaded": n, "errors": [..], "no_availability": n,
+       "pages": {adults: "rows" | "no_availability" | "empty" | "failed"}}
     A page counts as "loaded" only if navigation succeeded with HTTP < 400 and parsing
     didn't raise. Callers must NOT treat "no rows" as sold out unless every attempted
     page loaded — otherwise timeouts / blocks / 404s look like sold-out days.
     """
     out: List[dict] = []
-    status: Dict[str, Any] = {"attempted": 0, "loaded": 0, "errors": [], "no_availability": 0}
+    # "pages" records each guest count's outcome so the worker replaces current offers only for
+    # guest counts with conclusive evidence (offers parsed, or Booking.com's "no availability").
+    status: Dict[str, Any] = {"attempted": 0, "loaded": 0, "errors": [], "no_availability": 0, "pages": {}}
     booking_slug = _normalize_slug(slug)
     cc_eff = (cc or DEFAULT_CC).lower()
 
@@ -934,16 +937,19 @@ def scrape_hotel_for_dates_with_status(
             except TimeoutError:
                 print("⚠️ Timeout loading hotel page.")
                 status["errors"].append(f"adults={adults}: timeout")
+                status["pages"][adults] = "failed"
                 continue
             except Exception as e:
                 print("⚠️ Navigation error:", e)
                 status["errors"].append(f"adults={adults}: navigation error {type(e).__name__}")
+                status["pages"][adults] = "failed"
                 continue
 
             if resp is not None and resp.status >= 400:
                 # 404 = wrong slug/cc, 403/429 = blocked / rate-limited — never "sold out"
                 print(f"⚠️ HTTP {resp.status} for hotel page.")
                 status["errors"].append(f"adults={adults}: HTTP {resp.status}")
+                status["pages"][adults] = "failed"
                 continue
 
             if cancelled():
@@ -962,8 +968,13 @@ def scrape_hotel_for_dates_with_status(
                 rows = collect_room_rows_for_adults(page, adults)
                 if not rows:
                     rows = collect_card_rows_for_adults(page, adults)
-                if not rows and page_says_no_availability(page):
+                if rows:
+                    page_outcome = "rows"
+                elif page_says_no_availability(page):
                     status["no_availability"] += 1
+                    page_outcome = "no_availability"
+                else:
+                    page_outcome = "empty"  # loaded, nothing parsed, no message: inconclusive
 
                 for r in rows:
                     out.append({
@@ -984,10 +995,12 @@ def scrape_hotel_for_dates_with_status(
                     })
 
                 status["loaded"] += 1
+                status["pages"][adults] = page_outcome
 
             except Exception as e:
                 print("⚠️ Page error:", e)
                 status["errors"].append(f"adults={adults}: page error {type(e).__name__}")
+                status["pages"][adults] = "failed"
                 continue
 
         try:
