@@ -65,3 +65,12 @@ only when the row has no capacity signal at all — fixes the header leak), Book
 different numbers stays unknown; "Recommended for N adults" is not a capacity), and the single form "Sleeps: N guests"
 parses (it read the wrong regex group). Card-layout pages now split `capacity_unknown` vs `capacity_rejected_all`
 (`card_capacity_parsed`, `card_capacity_unknown`, `card_caps`). Tests: tests/test_room_rows.py.
+
+## Check-in dates in the property's timezone (branch `local-checkin-date`, not deployed)
+The first check-in night was `dt.date.today()` in a UTC container, so a manual check started between local midnight
+and UTC midnight (Europe/Ljubljana: 00:00–02:00 in summer, 00:00–01:00 in winter) began with a night already past
+locally (job 70c26f97: every hotel failed for that night). Now the first night is "today" in, in order:
+`job.meta.tz` (scheduled jobs — no extra lookup), `property_hotel_settings.timezone`, `autoscrape_prefs.timezone`,
+`WORKER_FALLBACK_TZ` (optional env, unset by default), else the container date as before (logged with ⚠️). Each
+name must load as an IANA zone. The image had no zone data at all, so `tzdata` is added to requirements.txt; without
+it every lookup falls back to the old behaviour. 06:00/18:00 slots are unchanged (local date = UTC date then).
