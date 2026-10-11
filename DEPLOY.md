@@ -48,3 +48,16 @@ docker compose up -d --force-recreate --scale worker=3   # deploy (keep --scale:
 Known: `docker compose stop` ends with exit 137 after 10 s — the worker runs as PID 1 without a
 SIGTERM handler. A job interrupted that way stays `running` until the stale-job reaper fails it
 (90 min without heartbeat).
+
+## Page diagnostics (not deployed yet)
+Every loaded hotel/date/adults page logs one line, `🧪 PAGE {json}` (`DIAG_PAGES=1` default; `0` turns it off;
+`DIAG_SAMPLE_LIMIT`, default 3). Counts only — no HTML, cookies or tokens; `samples` are ≤ 80-character capacity-text
+windows of rejected offers, `title` the page title (≤ 60 characters). `class` is exactly one of:
+`rows_parsed` · `no_availability_message` · `table_not_found` · `table_zero_rows` · `capacity_unknown` (offer rows,
+no capacity parsed) · `capacity_rejected_all` (capacities parsed, none equal to the requested adults) ·
+`price_parse_failed`. Other fields: `table_selector`, `rows_seen`, `offer_rows`, `capacity_parsed`,
+`capacity_match`, `caps` (capacity → rows), `cap_src` (rule that decided it), `price_failed`, `rows_parsed`, card
+fallback counts. Parsing results are unchanged. Read them with
+`docker logs --since … disclosaserver-worker-N 2>&1 | grep '🧪 PAGE'`.
+Known defect (tests/test_room_rows.py, expected failures): an offer's capacity text includes its room's header row,
+so the first offer's "Only for 1 guest" / higher "Max persons" decides later offers of the same room.
