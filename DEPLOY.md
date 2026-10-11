@@ -59,5 +59,9 @@ no capacity parsed) · `capacity_rejected_all` (capacities parsed, none equal to
 `capacity_match`, `caps` (capacity → rows), `cap_src` (rule that decided it), `price_failed`, `rows_parsed`, card
 fallback counts. Parsing results are unchanged. Read them with
 `docker logs --since … disclosaserver-worker-N 2>&1 | grep '🧪 PAGE'`.
-Known defect (tests/test_room_rows.py, expected failures): an offer's capacity text includes its room's header row,
-so the first offer's "Only for 1 guest" / higher "Max persons" decides later offers of the same room.
+Parser fix (branch `parser-capacity-fix`, not deployed): capacity is read from each offer's own row (header row
+only when the row has no capacity signal at all — fixes the header leak), Booking.com's offer wording
+"Guests: N adult(s)" and "Sleeps: N adult(s)" is understood (exact occupancy; an offer naming children or two
+different numbers stays unknown; "Recommended for N adults" is not a capacity), and the single form "Sleeps: N guests"
+parses (it read the wrong regex group). Card-layout pages now split `capacity_unknown` vs `capacity_rejected_all`
+(`card_capacity_parsed`, `card_capacity_unknown`, `card_caps`). Tests: tests/test_room_rows.py.

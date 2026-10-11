@@ -368,7 +368,13 @@ _ONLY_FOR_RE = re.compile(
 # Backwards-compat alias (older versions referenced _ONLY_FOR_GUEST_RE)
 _ONLY_FOR_GUEST_RE = _ONLY_FOR_RE
 # "Sleeps: 1 - 2 guests" / "Sleeps 1 - 2"
-_SLEEPS_RE = re.compile(r"\bsleeps\s*:?\s*(\d+)\s*(?:[-–—]|to)\s*(\d+)\s*(?:guests?|people|persons?)\b|\bsleeps\s*:?\s*(\d+)\s*(?:guests?|people|persons?)\b", re.IGNORECASE)
+_SLEEPS_RE = re.compile(r"\bsleeps\s*:?\s*(\d+)\s*(?:[-–—]|to)\s*(\d+)\s*(?:guests?|people|persons?|adults?)\b|\bsleeps\s*:?\s*(\d+)\s*(?:guests?|people|persons?|adults?)\b", re.IGNORECASE)
+# "Guests: 2 adults" / "Guests: 1 adult" (Booking.com offer rows since 10/2026). Adults only: an offer that also
+# names children ("Guests: 2 adults, 1 child") is not a 2-adult offer, so the lookahead rejects it.
+_GUESTS_ADULTS_RE = re.compile(
+    r"\bguests?\s*:\s*(\d+)\s*adults?\b(?!\s*(?:,|\+|and|&)?\s*\d+\s*(?:child|children|kids?)\b)",
+    re.IGNORECASE,
+)
 # Also catches "Sleeps 1 - 2 guests" without colon
 _SLEEPS_RE2 = re.compile(r"\bspi\s*:?\s*(\d+)\s*(?:[-–—]|do)\s*(\d+)\s*(?:gost|oseb)\b|\bspi\s*:?\s*(\d+)\s*(?:gost|oseb)\b", re.IGNORECASE)
 
@@ -495,6 +501,15 @@ def extract_effective_price(price_el, fallback_text: str = "") -> Optional[float
 
     return clean_price(fallback_text or "")
 
+def _extract_guests_adults(text: str) -> Optional[int]:
+    """Capacity from "Guests: N adult(s)". Several different numbers in the same text are ambiguous → None
+    (exact occupancy: never guess)."""
+    if not text:
+        return None
+    nums = {int(m.group(1)) for m in _GUESTS_ADULTS_RE.finditer(" ".join(text.split()))}
+    return nums.pop() if len(nums) == 1 else None
+
+
 def _extract_sleeps_capacity(text: str) -> Optional[int]:
     """Extract the implied capacity from Booking's "Sleeps" line.
 
@@ -508,12 +523,12 @@ def _extract_sleeps_capacity(text: str) -> Optional[int]:
 
     m = _SLEEPS_RE.search(t)
     if m:
-        try:
-            a = int(m.group(1))
-            b = int(m.group(2)) if m.group(2) else None
-            return b if b is not None else a
-        except Exception:
-            pass
+        # range form → groups 1-2 (upper bound); single form → group 3 (was read from group 1 = None, so
+        # "Sleeps: 2 guests" never parsed)
+        if m.group(2):
+            return int(m.group(2))
+        if m.group(3):
+            return int(m.group(3))
 
     m2 = _SLEEPS_RE2.search(t)
     if m2:
@@ -615,32 +630,44 @@ def _offer_blob_for_variant(room_name_row, variant_row) -> str:
 
 def _detect_offer_capacity(room_name_row, variant_row, blob: str) -> Optional[int]:
     """
-    PER-OFFER capacity:
-    1) "Only for X guest" / language variants in offer blob
-    2) "Sleeps: A - B guests" in offer blob
-    3) icons INSIDE variant row (not header)
-    4) "Max persons: X" in offer blob
-    5) fallback: header icons / header max persons
+    PER-OFFER capacity, read from the offer's OWN row only (never from the room's header row or a sibling offer):
+    1) "Only for X guest" / language variants in the offer row
+    2) "Sleeps: A - B guests" / "Sleeps: N adult(s)" in the offer row
+    2b) "Guests: N adult(s)" in the offer row
+    3) icons INSIDE the offer row
+    4) "Max persons: X" in the offer row
+    5) fallback, only when the offer row has no capacity signal at all (e.g. an occupancy cell spanning several
+       rows): header icons / header max persons
+    `blob` (offer + header text) is still used for meal plans and prices, not for capacity.
     """
     return _detect_offer_capacity_with_source(room_name_row, variant_row, blob)[0]
 
 
 def _detect_offer_capacity_with_source(room_name_row, variant_row, blob: str) -> Tuple[Optional[int], str]:
     """_detect_offer_capacity plus which rule decided it (for diagnostics only; same order, same result).
-    Sources: only_for | sleeps | icons_variant | max_persons | icons_header | max_persons_header | none."""
-    only_for = _extract_only_for_guest(blob)
+    Sources: only_for | sleeps | guests | icons_variant | max_persons | icons_header | max_persons_header | none.
+
+    The header row (first offer of a room) must not decide later offers: its "Only for 1 guest" or a higher
+    "Max persons" used to leak into every offer of the room because `blob` includes the header text."""
+    own = _offer_blob_for_variant(None, variant_row)
+
+    only_for = _extract_only_for_guest(own)
     if only_for is not None:
         return only_for, "only_for"
 
-    sleeps = _extract_sleeps_capacity(blob)
+    sleeps = _extract_sleeps_capacity(own)
     if sleeps is not None:
         return sleeps, "sleeps"
+
+    guests = _extract_guests_adults(own)
+    if guests is not None:
+        return guests, "guests"
 
     icons_variant = _count_person_icons_in_node(variant_row)
     if icons_variant:
         return icons_variant, "icons_variant"
 
-    mp = _extract_max_persons_from_text(blob)
+    mp = _extract_max_persons_from_text(own)
     if mp is not None:
         return mp, "max_persons"
 
@@ -692,7 +719,10 @@ def new_page_diag() -> Dict[str, Any]:
         "price_failed": 0,        # capacity matched but no price parsed
         "rows_parsed": 0,         # rows returned (after price parsing)
         "cards_seen": 0,          # card-layout fallback candidates
+        "card_capacity_parsed": 0,   # cards with a capacity
+        "card_capacity_unknown": 0,  # cards with a room name but no capacity
         "card_capacity_match": 0,
+        "card_caps": {},
         "card_price_failed": 0,
         "samples": [],            # ≤ DIAG_SAMPLE_LIMIT capacity_text_sample() of rejected offers
     }
@@ -711,7 +741,8 @@ def log_page_diag(slug: str, cc: str, checkin: str, adults: int, diag: Dict[str,
     🧪 PAGE {"slug":"nox__si","checkin":"2026-10-12","adults":2,"class":"capacity_rejected_all","rows_seen":18,…}"""
     rec = {"slug": f"{slug}__{cc}", "checkin": checkin, "adults": adults, **{k: diag.get(k) for k in (
         "class", "table_selector", "rows_seen", "offer_rows", "capacity_parsed", "capacity_match", "caps", "cap_src",
-        "price_failed", "rows_parsed", "cards_seen", "card_capacity_match", "card_price_failed", "samples")}, "title": title}
+        "price_failed", "rows_parsed", "cards_seen", "card_capacity_parsed", "card_capacity_unknown", "card_capacity_match",
+        "card_caps", "card_price_failed", "samples")}, "title": title}
     print("🧪 PAGE " + json.dumps(rec, ensure_ascii=False, separators=(",", ":")))
 
 
@@ -721,13 +752,16 @@ def classify_page(diag: Dict[str, Any], rows: int, no_availability: bool) -> str
         return "rows_parsed"
     if no_availability:
         return "no_availability_message"
-    if diag.get("table_selector") is None and not diag.get("cards_seen"):
-        return "table_not_found"
-    if diag.get("offer_rows", 0) == 0 and not diag.get("cards_seen"):
-        return "table_zero_rows"
-    if diag.get("capacity_match", 0) == 0 and diag.get("card_capacity_match", 0) == 0:
-        return "capacity_unknown" if diag.get("capacity_parsed", 0) == 0 and diag.get("offer_rows", 0) > 0 else "capacity_rejected_all"
-    return "price_parse_failed"
+    g = lambda k: diag.get(k) or 0  # noqa: E731
+    if diag.get("table_selector") is not None and g("offer_rows") > 0:
+        if g("capacity_match") == 0:
+            return "capacity_unknown" if g("capacity_parsed") == 0 else "capacity_rejected_all"
+        return "price_parse_failed"
+    if g("cards_seen") > 0:  # card layout (no usable room table)
+        if g("card_capacity_match") == 0:
+            return "capacity_unknown" if g("card_capacity_parsed") == 0 else "capacity_rejected_all"
+        return "price_parse_failed"
+    return "table_zero_rows" if diag.get("table_selector") is not None else "table_not_found"
 
 def collect_room_rows_for_adults(page, adults: int, diag: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
@@ -917,8 +951,21 @@ def collect_card_rows_for_adults(page, adults: int, diag: Optional[Dict[str, Any
             continue
 
         # strict capacity (exact)
-        cap = _extract_only_for_guest(txt) or _extract_sleeps_capacity(txt) or _extract_max_persons_from_text(txt) or _count_person_icons_in_node(c)
-        if cap is None or cap != adults:
+        cap = (
+            _extract_only_for_guest(txt)
+            or _extract_sleeps_capacity(txt)
+            or _extract_guests_adults(txt)
+            or _extract_max_persons_from_text(txt)
+            or _count_person_icons_in_node(c)
+        )
+        _bump(d, "card_caps", cap)
+        if cap is None:
+            d["card_capacity_unknown"] += 1
+            if len(d["samples"]) < DIAG_SAMPLE_LIMIT:
+                d["samples"].append({"cap": None, "src": "card", "text": capacity_text_sample(txt)})
+            continue
+        d["card_capacity_parsed"] += 1
+        if cap != adults:
             continue
         d["card_capacity_match"] += 1
 

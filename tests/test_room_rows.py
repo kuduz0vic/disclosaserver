@@ -191,34 +191,166 @@ class NoTableAndSoldOut(unittest.TestCase):
         self.assertEqual(core.classify_page(d, 0, True), "no_availability_message")
 
 
-class KnownDefects(unittest.TestCase):
-    """Proven from code: _offer_blob_for_variant() adds the room's HEADER row text (= the first offer's cells) to
-    every later offer's blob, and _extract_only_for_guest / _extract_max_persons_from_text take the MAXIMUM over all
-    matches. So capacity wording of the room's first offer leaks into its other offers. Expected failures until fixed
-    (the fix must keep strict per-offer occupancy, not loosen it)."""
+class OfferScopedCapacity(unittest.TestCase):
+    """Regression: capacity comes from the offer's own row. It used to include the room's header row (= the first
+    offer's cells), and "Only for X" / "Max persons" take the maximum match, so the first offer's capacity wording
+    decided the room's other offers (proven by these tests failing before the fix)."""
 
-    @unittest.expectedFailure
-    def test_single_use_first_offer_hides_the_double_offer(self):
-        # offer 1: single use ("Only for 1 guest"); offer 2: the normal double for 2 adults
-        t = Table(room("Double Room", [("Only for 1 guest € 180", 1, "€ 180"), ("Max persons: 2 € 231", 2, "€ 231")]))
-        rows, _ = parse(Page(t), 2)
+    SINGLE_USE_FIRST = Table(room("Double Room", [("Only for 1 guest € 180", 1, "€ 180"), ("Max persons: 2 € 231", 2, "€ 231")]))
+
+    def test_single_use_first_offer_no_longer_hides_the_double_offer(self):
+        rows, d = parse(Page(self.SINGLE_USE_FIRST), 2)
         self.assertEqual([r["price"] for r in rows], [231.0])
+        self.assertEqual(d["cap_src"], {"only_for": 1, "icons_variant": 1})
+        self.assertEqual(d["class"], "rows_parsed")
 
-    def test_single_use_leak_is_visible_in_diagnostics(self):
-        t = Table(room("Double Room", [("Only for 1 guest € 180", 1, "€ 180"), ("Max persons: 2 € 231", 2, "€ 231")]))
-        rows, d = parse(Page(t), 2)
-        self.assertEqual(rows, [], "today: the double is lost")
-        self.assertEqual(d["cap_src"], {"only_for": 2}, "both offers decided by the header's 'Only for 1 guest'")
-        self.assertEqual(d["class"], "capacity_rejected_all")
-        rows1, _ = parse(Page(t), 1)
-        self.assertEqual(sorted(r["price"] for r in rows1), [180.0, 231.0], "…and the double is stored as a 1-adult rate")
+    def test_single_use_offer_is_still_a_one_adult_rate_and_the_double_is_not(self):
+        rows, _ = parse(Page(self.SINGLE_USE_FIRST), 1)
+        self.assertEqual([r["price"] for r in rows], [180.0], "exact occupancy: the double is not a 1-adult rate")
 
-    @unittest.expectedFailure
-    def test_header_max_persons_overrides_variant_without_icons(self):
-        # icons not matched (selector drift): text decides, and the header's "Max persons: 3" outranks the variant's 2
+    def test_header_max_persons_no_longer_overrides_the_offer_row(self):
+        # icons not matched: text decides; the header's "Max persons: 3" must not outrank the offer's own 2
         t = Table(room("Flexible Room", [("Max persons: 3 € 300", 0, "€ 300"), ("Max persons: 2 € 231", 0, "€ 231")]))
+        self.assertEqual([r["price"] for r in parse(Page(t), 2)[0]], [231.0])
+        self.assertEqual([r["price"] for r in parse(Page(t), 3)[0]], [300.0])
+
+    def test_offer_row_without_any_capacity_signal_still_falls_back_to_the_header(self):
+        # occupancy cell spanning several rows: the later offer row has no capacity text or icons of its own
+        t = Table(room("Double Room", [("Max persons: 2 € 231", 2, "€ 231"), ("€ 245 Breakfast included", 0, "€ 245")]))
+        rows, d = parse(Page(t), 2)
+        self.assertEqual(sorted(r["price"] for r in rows), [231.0, 245.0])
+        self.assertEqual(d["cap_src"], {"icons_variant": 1, "icons_header": 1})
+
+    def test_offer_row_own_only_for_still_wins(self):
+        t = Table(room("Double Room", [("Max persons: 2 € 231", 2, "€ 231"), ("Only for 1 guest € 180", 1, "€ 180")]))
+        self.assertEqual([r["price"] for r in parse(Page(t), 1)[0]], [180.0])
+        self.assertEqual([r["price"] for r in parse(Page(t), 2)[0]], [231.0])
+
+    def test_duplicate_hidden_blocks_in_the_same_row_still_take_the_max(self):
+        t = Table(room("Double Room", [("Max persons: 1 Max persons: 2 € 231", 0, "€ 231")]))
+        self.assertEqual([r["price"] for r in parse(Page(t), 2)[0]], [231.0])
+
+    def test_meal_plan_still_reads_the_header_text(self):
+        t = Table(room("Double Room", [("Max persons: 2 Breakfast included € 231", 2, "€ 231"), ("Max persons: 2 € 245", 2, "€ 245")]))
         rows, _ = parse(Page(t), 2)
-        self.assertEqual([r["price"] for r in rows], [231.0])
+        self.assertTrue(all(r["breakfast_included"] for r in rows), "unchanged: the meal blob includes the header")
+
+    def test_all_guest_counts_on_a_mixed_room(self):
+        t = Table(
+            room("Double Room", [("Only for 1 guest € 180", 1, "€ 180"), ("Max persons: 2 € 231", 2, "€ 231")])
+            + room("Triple Room", [("Max persons: 3 € 300", 3, "€ 300")])
+            + room("Family Room", [("Max persons: 4 € 400", 4, "€ 400")])
+        )
+        got = {a: sorted(r["price"] for r in parse(Page(t), a)[0]) for a in (1, 2, 3, 4)}
+        self.assertEqual(got, {1: [180.0], 2: [231.0], 3: [300.0], 4: [400.0]})
+
+
+class Card:
+    """A card-layout room block (no hprt table): text, optional room name, icons and price."""
+
+    def __init__(self, text, name="Room", icons=0, price=None):
+        self.text, self.name, self.icons, self.price = text, name, icons, price
+
+    def inner_text(self):
+        return self.text
+
+    def query_selector(self, sel):
+        return Name(self.name) if self.name and sel == "[data-testid='room-name']" else None
+
+    def query_selector_all(self, sel):
+        return [Price(self.price)] if self.price and sel == "[data-testid='price-and-discounted-price']" else []
+
+    def evaluate(self, js):
+        if "bicon-occupancy" in js:
+            return self.icons or None
+        raise AssertionError("unexpected evaluate")
+
+
+class CardPage(Page):
+    def __init__(self, cards, **kw):
+        super().__init__(None, **kw)
+        self.cards = cards
+
+    def query_selector_all(self, sel):
+        return self.cards if sel == "[data-testid='property-card']" else []
+
+
+# Offer-row wording seen in production on 11 Oct 2026 (🧪 PAGE samples, job f3c63824), shortened.
+G2 = "Includes taxes and charges Guests: 2 adults Superb breakfast included Free cancellation € 231"
+G1 = "Includes taxes and charges Guests: 1 adult Superb breakfast included Free cancellation € 180"
+G3 = "Includes taxes and charges 10% off Guests: 3 adults Superb breakfast included € 300"
+S1 = "Double Room with Balcony Sleeps: 1 adult 1 large double bed 35 m² Balcony € 180"
+
+
+class ProductionWording(unittest.TestCase):
+    def test_extractors(self):
+        self.assertEqual(core._extract_guests_adults("Guests: 2 adults"), 2)
+        self.assertEqual(core._extract_guests_adults("Guests: 1 adult"), 1)
+        self.assertEqual(core._extract_guests_adults("guests:3 adults"), 3)
+        self.assertEqual(core._extract_sleeps_capacity("Sleeps: 1 adult 1 large double bed"), 1)
+        self.assertEqual(core._extract_sleeps_capacity("Sleeps: 2 adults"), 2)
+        self.assertEqual(core._extract_sleeps_capacity("Sleeps 1 - 2 adults"), 2, "range: upper bound, as before")
+
+    def test_not_broadened(self):
+        self.assertIsNone(core._extract_guests_adults("Guests: 2"), "no 'adults': unknown, as before")
+        self.assertIsNone(core._extract_guests_adults("Guests: 2 adults, 1 child"), "children named: not an N-adult offer")
+        self.assertIsNone(core._extract_guests_adults("Guests: 2 adults + 1 child"))
+        self.assertIsNone(core._extract_guests_adults("Guests: 1 adult … Guests: 2 adults"), "two different numbers: ambiguous")
+        self.assertIsNone(core._extract_guests_adults("Recommended for 3 adults"), "not the 'Guests:' label")
+        self.assertIsNone(core._extract_sleeps_capacity("1 large double bed 35 m²"))
+
+    def test_single_form_sleeps_now_parses(self):
+        # latent bug: the single form's number is regex group 3, but group 1 was read → always None
+        self.assertEqual(core._extract_sleeps_capacity("Sleeps: 2 guests"), 2)
+        self.assertEqual(core._extract_sleeps_capacity("Sleeps: 3 people"), 3)
+
+    def test_guests_rows_exact_occupancy(self):
+        t = Table(room("Double Room", [(G2, 0, "€ 231"), (G1, 0, "€ 180")]) + room("Triple Room", [(G3, 0, "€ 300")]))
+        for adults, want in ((1, [180.0]), (2, [231.0]), (3, [300.0]), (4, [])):
+            rows, d = parse(Page(t), adults)
+            self.assertEqual(sorted(r["price"] for r in rows), want, adults)
+            self.assertEqual(d["cap_src"], {"guests": 3})
+        self.assertEqual(parse(Page(t), 4)[1]["class"], "capacity_rejected_all")
+
+    def test_header_guests_does_not_leak(self):
+        # header offer "Guests: 1 adult", later offer "Guests: 2 adults": each is read from its own row
+        t = Table(room("Double Room", [(G1, 0, "€ 180"), (G2, 0, "€ 231")]))
+        self.assertEqual([r["price"] for r in parse(Page(t), 2)[0]], [231.0])
+        self.assertEqual([r["price"] for r in parse(Page(t), 1)[0]], [180.0])
+
+    def test_sleeps_adult_row(self):
+        t = Table(room("Double Room with Balcony", [(S1, 0, "€ 180")]))
+        self.assertEqual([r["price"] for r in parse(Page(t), 1)[0]], [180.0])
+        rows, d = parse(Page(t), 2)
+        self.assertEqual((rows, d["class"], d["cap_src"]), ([], "capacity_rejected_all", {"sleeps": 1}))
+
+    def test_older_icon_markup_unchanged(self):
+        rows, d = parse(Page(KNOWN), 2)
+        self.assertEqual(sorted(r["price"] for r in rows), [231.0, 245.0])
+        self.assertEqual(d["cap_src"], {"icons_variant": 3})
+
+
+class CardLayoutDiagnostics(unittest.TestCase):
+    def test_card_capacity_unknown(self):
+        p = CardPage([Card("Deluxe Double 30 m² € 231", price="€ 231"), Card("Twin Room 22 m² € 200", price="€ 200")])
+        rows, d = parse(p, 2)
+        self.assertEqual((rows, d["class"]), ([], "capacity_unknown"))
+        self.assertEqual((d["cards_seen"], d["card_capacity_unknown"], d["card_capacity_parsed"]), (2, 2, 0))
+        self.assertEqual(d["samples"][0]["src"], "card")
+
+    def test_card_capacity_parsed_but_rejected(self):
+        p = CardPage([Card("Family Room Guests: 4 adults € 400", price="€ 400")])
+        rows, d = parse(p, 2)
+        self.assertEqual((rows, d["class"], d["card_caps"]), ([], "capacity_rejected_all", {"4": 1}))
+
+    def test_card_rows_with_new_wording(self):
+        p = CardPage([Card("Double Room " + G2, price="€ 231"), Card("Single Room " + G1, price="€ 180")])
+        rows, d = parse(p, 2)
+        self.assertEqual(([r["price"] for r in rows], d["class"], d["card_capacity_match"]), ([231.0], "rows_parsed", 1))
+
+    def test_card_price_parse_failed(self):
+        p = CardPage([Card("Double Room Guests: 2 adults price on request", price=None)])
+        self.assertEqual(parse(p, 2)[1]["class"], "price_parse_failed")
 
 
 class LogLine(unittest.TestCase):
