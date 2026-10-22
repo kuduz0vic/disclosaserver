@@ -48,3 +48,29 @@ docker compose up -d --force-recreate --scale worker=3   # deploy (keep --scale:
 Known: `docker compose stop` ends with exit 137 after 10 s — the worker runs as PID 1 without a
 SIGTERM handler. A job interrupted that way stays `running` until the stale-job reaper fails it
 (90 min without heartbeat).
+
+## Page diagnostics (not deployed yet)
+Every loaded hotel/date/adults page logs one line, `🧪 PAGE {json}` (`DIAG_PAGES=1` default; `0` turns it off;
+`DIAG_SAMPLE_LIMIT`, default 3). Counts only — no HTML, cookies or tokens; `samples` are ≤ 80-character capacity-text
+windows of rejected offers, `title` the page title (≤ 60 characters). `class` is exactly one of:
+`rows_parsed` · `no_availability_message` · `table_not_found` · `table_zero_rows` · `capacity_unknown` (offer rows,
+no capacity parsed) · `capacity_rejected_all` (capacities parsed, none equal to the requested adults) ·
+`price_parse_failed`. Other fields: `table_selector`, `rows_seen`, `offer_rows`, `capacity_parsed`,
+`capacity_match`, `caps` (capacity → rows), `cap_src` (rule that decided it), `price_failed`, `rows_parsed`, card
+fallback counts. Parsing results are unchanged. Read them with
+`docker logs --since … disclosaserver-worker-N 2>&1 | grep '🧪 PAGE'`.
+Parser fix (branch `parser-capacity-fix`, not deployed): capacity is read from each offer's own row (header row
+only when the row has no capacity signal at all — fixes the header leak), Booking.com's offer wording
+"Guests: N adult(s)" and "Sleeps: N adult(s)" is understood (exact occupancy; an offer naming children or two
+different numbers stays unknown; "Recommended for N adults" is not a capacity), and the single form "Sleeps: N guests"
+parses (it read the wrong regex group). Card-layout pages now split `capacity_unknown` vs `capacity_rejected_all`
+(`card_capacity_parsed`, `card_capacity_unknown`, `card_caps`). Tests: tests/test_room_rows.py.
+
+## Check-in dates in the property's timezone (branch `local-checkin-date`, not deployed)
+The first check-in night was `dt.date.today()` in a UTC container, so a manual check started between local midnight
+and UTC midnight (Europe/Ljubljana: 00:00–02:00 in summer, 00:00–01:00 in winter) began with a night already past
+locally (job 70c26f97: every hotel failed for that night). Now the first night is "today" in, in order:
+`job.meta.tz` (scheduled jobs — no extra lookup), `property_hotel_settings.timezone`, `autoscrape_prefs.timezone`,
+`WORKER_FALLBACK_TZ` (optional env, unset by default), else the container date as before (logged with ⚠️). Each
+name must load as an IANA zone. The image had no zone data at all, so `tzdata` is added to requirements.txt; without
+it every lookup falls back to the old behaviour. 06:00/18:00 slots are unchanged (local date = UTC date then).

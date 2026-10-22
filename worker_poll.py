@@ -6,6 +6,7 @@ import os
 import time
 import datetime as dt
 from datetime import timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Optional, Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import threading
@@ -57,6 +58,9 @@ NO_PROGRESS_KILL_SEC = int(os.getenv("NO_PROGRESS_KILL_SEC", "1800"))
 # it, and the watchdog thread exits the process (-> restart policy) when it goes stale.
 LIVENESS_FILE = os.getenv("LIVENESS_FILE", "/tmp/worker-alive")
 LIVENESS_MAX_AGE_SEC = int(os.getenv("LIVENESS_MAX_AGE_SEC", "900"))
+
+# Optional last-resort timezone for check-in dates when a job's property has none (unset = container date, as before)
+WORKER_FALLBACK_TZ = (os.getenv("WORKER_FALLBACK_TZ") or "").strip() or None
 
 HTTP_TIMEOUT_SEC = float(os.getenv("HTTP_TIMEOUT_SEC", "20"))
 HTTP_RETRIES = int(os.getenv("HTTP_RETRIES", "2"))
@@ -805,6 +809,70 @@ def apply_job_slug_filter(job_meta: Dict[str, Any], hotels: List[Dict[str, Any]]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# check-in dates in the property's timezone
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _zone(name: Any) -> Optional[ZoneInfo]:
+    """A usable IANA zone, or None (missing, malformed, unknown, or no zone data in the image)."""
+    if not isinstance(name, str) or not name.strip() or len(name) > 64:
+        return None
+    try:
+        return ZoneInfo(name.strip())
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return None
+
+
+def checkin_start_date(
+    now_utc: dt.datetime,
+    candidates,
+    fallback_today=dt.date.today,
+) -> "tuple[dt.date, Optional[str], str]":
+    """First check-in night = "today" in the first valid timezone of `candidates` (iterable of (source, name);
+    names may be callables, evaluated lazily so later lookups only run when needed). No valid zone → the
+    container's date, exactly as before (dt.date.today()). Returns (date, timezone or None, source)."""
+    for source, name in candidates:
+        if callable(name):
+            try:
+                name = name()
+            except Exception:
+                name = None
+        z = _zone(name)
+        if z is not None:
+            return now_utc.astimezone(z).date(), str(name).strip(), source
+    return fallback_today(), None, "container_date"
+
+
+def _property_timezone(property_id: str) -> Optional[str]:
+    r = http_get("/rest/v1/property_hotel_settings", {"select": "timezone", "property_id": f"eq.{property_id}", "limit": "1"})
+    rows = r.json() or []
+    return rows[0].get("timezone") if rows else None
+
+
+def _prefs_timezone(user_id: str, property_id: str) -> Optional[str]:
+    r = http_get(
+        "/rest/v1/autoscrape_prefs",
+        {"select": "timezone", "user_id": f"eq.{user_id}", "property_id": f"eq.{property_id}", "limit": "1"},
+    )
+    rows = r.json() or []
+    return rows[0].get("timezone") if rows else None
+
+
+def job_checkin_start(job: dict, user_id: str, property_id: str, now_utc: Optional[dt.datetime] = None):
+    """Scheduled jobs carry meta.tz (the slot's timezone); manual jobs do not, so the property's own timezone is
+    read (property_hotel_settings, then autoscrape_prefs), then WORKER_FALLBACK_TZ, then the container date."""
+    meta = job.get("meta") or {}
+    return checkin_start_date(
+        now_utc or dt.datetime.now(timezone.utc),
+        [
+            ("job.meta.tz", meta.get("tz") if isinstance(meta, dict) else None),
+            ("property_hotel_settings", lambda: _property_timezone(property_id)),
+            ("autoscrape_prefs", lambda: _prefs_timezone(user_id, property_id)),
+            ("WORKER_FALLBACK_TZ", WORKER_FALLBACK_TZ),
+        ],
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # main job loop
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -827,8 +895,12 @@ def process_job(first_row: dict):
     property_id = str(property_id)
     range_days = int(job.get("range_days") or 1)
 
-    start_date = dt.date.today()
     job_started = dt.datetime.now(timezone.utc)
+    start_date, start_tz, start_src = job_checkin_start(job, user_id, property_id, job_started)
+    if start_tz:
+        print(f"📅 job {job_id}: first night {start_date} ({start_tz}, from {start_src})")
+    else:
+        print(f"⚠️ job {job_id}: no usable timezone for property {property_id}; first night {start_date} (container date)")
 
     def over_time_budget() -> bool:
         return (dt.datetime.now(timezone.utc) - job_started).total_seconds() > MAX_JOB_DURATION_SEC
